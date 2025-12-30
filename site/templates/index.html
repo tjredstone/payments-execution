@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Payments Execution Infrastructure</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <meta name="description" content="Exploratory work on payment execution timing, automation, and harm reduction.">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+
+    <main class="container">
+
+        <header class="header">
+            <h1>Payments Execution Infrastructure</h1>
+            <p class="subtitle">
+                Reducing avoidable payment failures through timing, context, and automation.
+            </p>
+        </header>
+
+        <section>
+            <p>
+                A large number of payment problems are not caused by unwillingness to pay.
+                They are caused by <strong>timing mismatches</strong> — paydays that move,
+                bank holidays, rigid collection dates, and systems that assume humans will
+                always remember and intervene at the right moment.
+            </p>
+
+            <p>
+                This project explores a different approach.
+            </p>
+
+            <blockquote>
+                What if payment systems adapted to real cashflow,
+                rather than punishing people when reality doesn’t line up with fixed schedules?
+            </blockquote>
+        </section>
+
+        <section>
+            <h2>What this is</h2>
+
+            <p>
+                This is an exploratory project focused on <strong>payment execution</strong> — specifically:
+            </p>
+
+            <ul>
+                <li>understanding when payments are most likely to succeed</li>
+                <li>reducing failed attempts and retries</li>
+                <li>preventing avoidable downstream harm (fees, arrears, stress)</li>
+                <li>making execution predictable without removing choice</li>
+            </ul>
+
+            <p>
+                The emphasis is on <strong>automation and context</strong>,
+                not behaviour change or budgeting.
+            </p>
+        </section>
+
+        <section>
+            <h2>What this is not</h2>
+
+            <p>This project is <strong>not</strong>:</p>
+
+            <ul>
+                <li>a bank</li>
+                <li>a payment method</li>
+                <li>a credit product</li>
+                <li>a budgeting app</li>
+                <li>financial advice</li>
+            </ul>
+
+            <p>
+                It does not hold money, initiate payments, or make decisions on a person’s behalf.
+            </p>
+
+            <p>
+                It explores how <strong>better timing signals and execution logic</strong>
+                could sit alongside existing payment systems to reduce failure.
+            </p>
+        </section>
+
+        <section>
+            <h2>The core idea</h2>
+
+            <p>
+                People don’t think in payment rails or settlement windows.
+                They think in outcomes:
+            </p>
+
+            <ul>
+                <li>“Don’t let this go late by accident”</li>
+                <li>“Don’t take money before I’m paid”</li>
+                <li>“If this can’t be paid, tell me early”</li>
+            </ul>
+
+            <p>
+                Modern systems rarely support that intent.
+            </p>
+
+            <p>
+                This work looks at how <strong>read-only financial context</strong>,
+                combined with explicit consent and narrow scope, could be used to:
+            </p>
+
+            <ul>
+                <li>signal safer execution windows</li>
+                <li>avoid high-risk attempts</li>
+                <li>surface insufficiency earlier</li>
+                <li>reduce the need for retries and escalation</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Why this matters</h2>
+
+            <p>
+                Failed payments create costs on all sides:
+            </p>
+
+            <ul>
+                <li>customers face fees, stress, and reputational harm</li>
+                <li>billers face retries, support calls, arrears management, and volatility</li>
+                <li>systems become more punitive to compensate for uncertainty</li>
+            </ul>
+
+            <p>
+                Reducing <em>avoidable</em> failure benefits everyone —
+                without relying on penalties or blame.
+            </p>
+        </section>
+
+        <section>
+            <h2>Current status</h2>
+
+            <p>
+                This is early-stage, exploratory work.
+            </p>
+
+            <p>
+                The repository contains:
+            </p>
+
+            <ul>
+                <li>a short white paper outlining the model and constraints</li>
+                <li>a simulation engine to test execution scenarios</li>
+                <li>no production code</li>
+                <li>no live service</li>
+            </ul>
+
+            <p>
+                The goal is clarity and scrutiny before any further steps.
+            </p>
+        </section>
+
+        <section>
+            <h2>Transparency</h2>
+
+            <p>
+                This work is shared publicly to make the thinking explicit and open to challenge.
+            </p>
+
+            <p>
+                It does not constitute a product, service, or offer.
+            </p>
+        </section>
+
+        <footer class="footer">
+            <p>
+                <a href="/paper">Read the white paper</a> ·
+                <a href="/sim">View the simulation</a>
+            </p>
+        </footer>
+
+    </main>
+
+</body>
+
+</html>
