@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Payments Execution Infrastructure</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Exploratory work on payment execution timing, automation, and harm reduction.">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+</head>
+
+<body>
+
+    <div class="container">
+
+        <!-- NAV -->
+        <nav class="nav">
+            <div class="brand">
+                <span class="dot"></span>
+                Payments Execution
+            </div>
+            <div class="navlinks">
+                <a href="/">Overview</a>
+                <a href="/paper">White paper</a>
+                <a href="/sim">Simulation</a>
+            </div>
+        </nav>
+
+        <!-- HERO -->
+        <section class="hero">
+            <span class="kicker">Exploratory infrastructure research</span>
+
+            <h1>Payments Execution Infrastructure</h1>
+
+            <p class="lead">
+                Reducing avoidable payment failures through timing, context, and automation —
+                without holding money, issuing credit, or changing existing payment rails.
+            </p>
+
+            <div class="cta-row">
+                <a class="btn primary" href="/paper">Read the white paper</a>
+                <a class="btn" href="/sim">View the simulation</a>
+            </div>
+        </section>
+
+        <!-- PROBLEM -->
+        <section class="section">
+            <p>
+                A large number of payment problems are not caused by unwillingness to pay.
+                They are caused by <strong>timing mismatches</strong> — paydays that move,
+                bank holidays, rigid collection dates, and systems that assume humans will
+                always remember and intervene at the right moment.
+            </p>
+
+            <p>
+                This project explores a different approach.
+            </p>
+
+            <blockquote>
+                What if payment systems adapted to real cashflow,
+                rather than punishing people when reality doesn’t line up with fixed schedules?
+            </blockquote>
+        </section>
+
+        <!-- WHAT THIS IS / ISN'T -->
+        <section class="grid">
+
+            <div class="card">
+                <h3>What this is</h3>
+                <ul>
+                    <li>Payment execution and timing research</li>
+                    <li>Reducing failed attempts and retries</li>
+                    <li>Preventing avoidable downstream harm</li>
+                    <li>Automation driven by real cashflow context</li>
+                </ul>
+                <p class="small">
+                    Focused on execution — not budgeting or behaviour change.
+                </p>
+            </div>
+
+            <div class="card">
+                <h3>What this is not</h3>
+                <ul>
+                    <li>A bank or payment method</li>
+                    <li>A credit product</li>
+                    <li>A budgeting app</li>
+                    <li>Financial advice</li>
+                </ul>
+                <p class="small">
+                    No money held. No payments initiated. No decisions made on a user’s behalf.
+                </p>
+            </div>
+
+        </section>
+
+        <!-- CORE IDEA -->
+        <section class="section">
+            <h2>The core idea</h2>
+
+            <p>People don’t think in payment rails or settlement windows. They think in outcomes:</p>
+
+            <ul>
+                <li>“Don’t let this go late by accident”</li>
+                <li>“Don’t take money before I’m paid”</li>
+                <li>“If this can’t be paid, tell me early”</li>
+            </ul>
+
+            <p>
+                This work explores how <strong>read-only financial context</strong>,
+                explicit consent, and narrow scope could be used to:
+            </p>
+
+            <ul>
+                <li>signal safer execution windows</li>
+                <li>avoid high-risk attempts</li>
+                <li>surface insufficiency earlier</li>
+                <li>reduce retries and escalation</li>
+            </ul>
+        </section>
+
+        <!-- WHY IT MATTERS -->
+        <section class="section">
+            <h2>Why this matters</h2>
+
+            <ul>
+                <li>Customers face fees, stress, and reputational harm</li>
+                <li>Billers face retries, support calls, arrears management, and volatility</li>
+                <li>Systems become punitive to compensate for uncertainty</li>
+            </ul>
+
+            <p>
+                Reducing <em>avoidable</em> failure benefits everyone —
+                without relying on penalties or blame.
+            </p>
+        </section>
+
+        <!-- STATUS -->
+        <section class="section">
+            <h2>Current status</h2>
+
+            <ul>
+                <li>Early-stage exploratory work</li>
+                <li>White paper outlining the model and constraints</li>
+                <li>Simulation engine for execution scenarios</li>
+                <li>No production code or live service</li>
+            </ul>
+
+            <p>
+                The goal is clarity and scrutiny before any further steps.
+            </p>
+        </section>
+
+        <!-- FOOTER -->
+        <footer class="footer">
+            <span>
+                Shared publicly for transparency and challenge.
+            </span>
+            <span>
+                Not a product, service, or offer.
+            </span>
+        </footer>
+
+    </div>
+
+</body>
+
+</html>

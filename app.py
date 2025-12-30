@@ -4,18 +4,18 @@ app = Flask(__name__)
 
 
 @app.route("/")
-def home():
+def index():
     return render_template("index.html")
 
 
 @app.route("/paper")
 def paper():
-    return render_template("paper.html")
+    return "<h1>White paper coming soon</h1>"
 
 
 @app.route("/sim")
 def sim():
-    return render_template("sim.html")
+    return "<h1>Simulation coming soon</h1>"
 
 
 if __name__ == "__main__":
