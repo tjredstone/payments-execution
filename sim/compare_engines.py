@@ -3,11 +3,23 @@ from sim.engine_v1_1 import run_simulation as run_execution_aware
 from sim.baseline_engine import run_baseline_simulation
 
 
-def run_comparison(verbose: bool = True):
+def run_comparison(
+    salary: int = 2200,
+    rent: int = 900,
+    council_tax: int = 140,
+    credit_card: int = 300,
+    months: int = 6,
+    verbose: bool = True,
+):
     """
     Runs the same scenario through:
     - the baseline (current system)
     - the execution-aware system (v1)
+
+    Parameters are explicit so this can be driven by:
+    - CLI
+    - Flask UI
+    - tests later
 
     Returns a dict suitable for:
     - CLI inspection
@@ -15,8 +27,14 @@ def run_comparison(verbose: bool = True):
     - JSON output later
     """
 
-    # Shared scenario
-    scenario = make_standard_household_scenario()
+    # Build shared scenario
+    scenario = make_standard_household_scenario(
+        salary=salary,
+        rent=rent,
+        council_tax=council_tax,
+        credit_card=credit_card,
+        months=months,
+    )
 
     # --- Baseline ---
     baseline_result = run_baseline_simulation(
@@ -75,9 +93,9 @@ def print_summary(comparison):
 
 
 def main():
+    # Default CLI run
     comparison = run_comparison(verbose=True)
 
-    # Print traces
     print("\n--- Baseline trace ---\n")
     for line in comparison["baseline"].trace:
         print(line)

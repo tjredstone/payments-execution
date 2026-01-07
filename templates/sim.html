@@ -18,6 +18,31 @@
             margin-top: 1.5em;
         }
 
+        form {
+            background: #fafafa;
+            border: 1px solid #ddd;
+            padding: 16px;
+            margin-bottom: 32px;
+        }
+
+        label {
+            display: block;
+            margin-top: 12px;
+        }
+
+        input {
+            width: 100%;
+            padding: 6px;
+            margin-top: 4px;
+        }
+
+        button {
+            margin-top: 16px;
+            padding: 8px 16px;
+            font-size: 1em;
+            cursor: pointer;
+        }
+
         .summary {
             background: #fafafa;
             border: 1px solid #ddd;
@@ -61,9 +86,42 @@
     <h1>Payment Execution Simulation</h1>
 
     <p>
-        This simulation compares a <strong>baseline payment system</strong>
-        with an <strong>execution-aware system</strong> using the same inputs.
+        Adjust the inputs below to explore how payment timing affects outcomes
+        under different execution models.
     </p>
+
+    <!-- INPUT FORM -->
+    <form method="post">
+        <label>
+            Monthly salary (£)
+            <input type="number" name="salary" value="{{ params.salary }}">
+        </label>
+
+        <label>
+            Rent (£)
+            <input type="number" name="rent" value="{{ params.rent }}">
+        </label>
+
+        <label>
+            Council tax (£)
+            <input type="number" name="council_tax" value="{{ params.council_tax }}">
+        </label>
+
+        <label>
+            Credit card (£)
+            <input type="number" name="credit_card" value="{{ params.credit_card }}">
+        </label>
+
+        <label>
+            Months to simulate
+            <input type="number" name="months" value="{{ params.months }}">
+        </label>
+
+        <button type="submit">Run simulation</button>
+    </form>
+
+    <!-- RESULTS (only shown after run) -->
+    {% if has_run %}
 
     <div class="summary">
         <h2>Summary</h2>
@@ -84,14 +142,13 @@
     </div>
 
     <div class="grid">
-
         <div>
             <h2>Baseline trace</h2>
             <pre>
 {% for line in baseline.trace %}
 {{ line }}
 {% endfor %}
-        </pre>
+            </pre>
         </div>
 
         <div>
@@ -100,10 +157,11 @@
 {% for line in execution.trace %}
 {{ line }}
 {% endfor %}
-        </pre>
+            </pre>
         </div>
-
     </div>
+
+    {% endif %}
 
 </body>
 

@@ -1,65 +1,61 @@
 import random
-from typing import List, Tuple, Dict, Any
-
-from sim.engine import IncomeEvent, Obligation
+from sim.engine_v1_1 import IncomeEvent, Obligation
 
 
 def make_standard_household_scenario(
-    *,
+    salary: int = 2200,
+    rent: int = 900,
+    council_tax: int = 140,
+    credit_card: int = 300,
     months: int = 6,
-    days_per_month: int = 30,
-    salary_amount: int = 2200,
-    salary_day_in_month: int = 26,  # “pay day”
-    salary_jitter_days: int = 2,  # pay day can move +/- this many days
-    start_balance: int = 0,
-) -> Dict[str, Any]:
+):
     """
-    Returns a dict of scenario inputs that BOTH engines can use.
-    This contains only inputs (no execution logic).
+    Builds a simple, realistic household scenario.
 
-    Notes:
-    - We simulate 'months' each with 'days_per_month' days (simple model).
-    - Salary arrives once per month with optional jitter.
-    - Obligations are due on the last day of each month by default in this scenario.
+    - Salary arrives once per month with small timing variance
+    - Obligations fall at the end of each month
+    - No behavioural assumptions
     """
 
-    income: List[IncomeEvent] = []
-    obligations: List[Obligation] = []
+    DAYS_PER_MONTH = 30
+
+    income = []
+    obligations = []
+
+    start_balance = 0
+    start_day = 1
+    end_day = months * DAYS_PER_MONTH
 
     for m in range(months):
-        base = m * days_per_month
+        base = m * DAYS_PER_MONTH
 
-        # Salary day can move a bit each month
-        jitter = random.randint(-salary_jitter_days, salary_jitter_days)
-        salary_day = base + salary_day_in_month + jitter
-        income.append(IncomeEvent(day=salary_day, amount=salary_amount))
+        # Salary day jitter (realistic payroll variance)
+        salary_day = base + 25 + random.choice([-2, -1, 0, 1, 2])
+        income.append(IncomeEvent(day=salary_day, amount=salary))
 
-        # Example obligations (edit freely)
-        due = base + days_per_month  # last day of the month
+        # Fixed obligations
         obligations.extend(
             [
-                Obligation(name="rent", due_day=due, amount=900),
-                Obligation(name="council_tax", due_day=due, amount=140),
-                Obligation(name="credit_card", due_day=due, amount=300),
+                Obligation("rent", base + 30, rent),
+                Obligation("council_tax", base + 30, council_tax),
+                Obligation("credit_card", base + 30, credit_card),
             ]
         )
 
-    return {
-        "start_balance": start_balance,
-        "start_day": 1,
-        "end_day": months * days_per_month,
+    scenario = {
         "income": income,
         "obligations": obligations,
-        # calendar config can live here later if you want
-        "calendar": {
-            "weekends_block_execution": True,
-            "bank_holidays": [],  # we can add e.g. [30, 60, ...] later
-        },
+        "start_balance": start_balance,
+        "start_day": start_day,
+        "end_day": end_day,
+        "calendar": {"bank_holidays": []},  # placeholder for future realism
         "meta": {
             "months": months,
-            "days_per_month": days_per_month,
-            "salary_amount": salary_amount,
-            "salary_day_in_month": salary_day_in_month,
-            "salary_jitter_days": salary_jitter_days,
+            "salary": salary,
+            "rent": rent,
+            "council_tax": council_tax,
+            "credit_card": credit_card,
         },
     }
+
+    return scenario
