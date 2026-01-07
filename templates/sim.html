@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Payment Execution Simulation</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            margin: 40px;
+            line-height: 1.5;
+        }
+
+        h1,
+        h2 {
+            margin-top: 1.5em;
+        }
+
+        .summary {
+            background: #fafafa;
+            border: 1px solid #ddd;
+            padding: 16px;
+            margin-bottom: 32px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 32px;
+        }
+
+        pre {
+            background: #f6f6f6;
+            padding: 16px;
+            font-size: 0.9em;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+
+        .bad {
+            color: #b00020;
+        }
+
+        .good {
+            color: #006400;
+        }
+
+        a {
+            text-decoration: none;
+            color: #0066cc;
+        }
+    </style>
+</head>
+
+<body>
+
+    <a href="/">← Back to overview</a>
+
+    <h1>Payment Execution Simulation</h1>
+
+    <p>
+        This simulation compares a <strong>baseline payment system</strong>
+        with an <strong>execution-aware system</strong> using the same inputs.
+    </p>
+
+    <div class="summary">
+        <h2>Summary</h2>
+
+        <h3>Baseline (current system)</h3>
+        <ul>
+            <li>On-time payments: {{ baseline.on_time }}</li>
+            <li class="bad">Late payments: {{ baseline.late }}</li>
+            <li>Total days late: {{ baseline.total_days_late }}</li>
+            <li>Failed payments: {{ baseline.failed }}</li>
+        </ul>
+
+        <h3>Execution-aware system</h3>
+        <ul>
+            <li class="good">On-time payments: {{ execution.on_time }}</li>
+            <li>Failed payments: {{ execution.failed }}</li>
+        </ul>
+    </div>
+
+    <div class="grid">
+
+        <div>
+            <h2>Baseline trace</h2>
+            <pre>
+{% for line in baseline.trace %}
+{{ line }}
+{% endfor %}
+        </pre>
+        </div>
+
+        <div>
+            <h2>Execution-aware trace</h2>
+            <pre>
+{% for line in execution.trace %}
+{{ line }}
+{% endfor %}
+        </pre>
+        </div>
+
+    </div>
+
+</body>
+
+</html>
