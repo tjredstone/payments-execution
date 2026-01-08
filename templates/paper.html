@@ -392,6 +392,162 @@
         and to design downstream processes accordingly.
     </p>
 
+    <!-- SECTION 4 -->
+
+    <h2>4. Simulation Model and Methodology</h2>
+
+    <h3>4.1 Why simulation</h3>
+
+    <p>
+        Evaluating changes to payment execution logic in real-world systems
+        presents practical and ethical challenges.
+        Live experimentation risks causing harm,
+        while retrospective analysis often lacks the necessary context
+        to distinguish execution failures from genuine insufficiency.
+    </p>
+
+    <p>
+        Simulation provides a controlled environment in which
+        different execution models can be compared
+        using identical inputs and constraints.
+    </p>
+
+    <p>
+        The goal of the simulation used in this work is not to predict behaviour
+        or optimise outcomes,
+        but to isolate the effect of execution timing alone.
+    </p>
+
+    <h3>4.2 Shared inputs and assumptions</h3>
+
+    <p>
+        Each simulation run operates on a shared set of inputs,
+        held constant across all execution models.
+    </p>
+
+    <p>
+        These inputs include:
+    </p>
+
+    <ul>
+        <li>monthly income amounts</li>
+        <li>income arrival timing, with limited variability</li>
+        <li>fixed financial obligations and due dates</li>
+        <li>execution constraints such as weekends and bank holidays</li>
+        <li>starting account balance</li>
+    </ul>
+
+    <p>
+        No behavioural assumptions are introduced.
+        The simulation does not model discretionary spending,
+        budgeting decisions, or changes in user behaviour over time.
+    </p>
+
+    <p>
+        All models are evaluated against the same calendar,
+        income events, and obligations.
+        The only variable is execution logic.
+    </p>
+
+    <h3>4.3 Baseline execution model</h3>
+
+    <p>
+        The baseline model is intended to reflect how
+        current consumer payment systems operate in practice.
+    </p>
+
+    <p>
+        Under this model:
+    </p>
+
+    <ul>
+        <li>payments are scheduled to execute on their due date</li>
+        <li>execution is deferred if the due date falls on a non-executable day</li>
+        <li>no lookahead is performed beyond the due date</li>
+        <li>late execution is accepted as an outcome</li>
+    </ul>
+
+    <p>
+        This model does not attempt to anticipate future income
+        or adjust execution timing to compensate for calendar effects.
+    </p>
+
+    <p>
+        It is not intended to represent a poorly designed system,
+        but a reasonable approximation of prevailing behaviour.
+    </p>
+
+    <h3>4.4 Execution-aware model</h3>
+
+    <p>
+        The execution-aware model introduces a minimal additional capability:
+        the ability to evaluate execution timing within a known window
+        while preserving explicit constraints.
+    </p>
+
+    <p>
+        Under this model:
+    </p>
+
+    <ul>
+        <li>obligations are eligible for execution at any point up to their due date</li>
+        <li>future executable days are identified within the allowed window</li>
+        <li>incoming funds within that window are considered</li>
+        <li>execution occurs at the last moment that preserves on-time payment</li>
+    </ul>
+
+    <p>
+        Execution is skipped on days where payment is not possible
+        due to calendar or rail constraints.
+    </p>
+
+    <p>
+        The model does not execute early unless doing so is required
+        to avoid a future execution constraint.
+    </p>
+
+    <h3>4.5 What is measured</h3>
+
+    <p>
+        Each simulation run records the following outcomes:
+    </p>
+
+    <ul>
+        <li>number of on-time payments</li>
+        <li>number of late payments</li>
+        <li>total number of days payments were late</li>
+        <li>number of failed payments</li>
+        <li>lowest account balance observed</li>
+    </ul>
+
+    <p>
+        These metrics are intended to capture both
+        the frequency and severity of execution failure,
+        as well as any changes in liquidity risk.
+    </p>
+
+    <h3>4.6 Interpreting results</h3>
+
+    <p>
+        Because all non-execution variables are held constant,
+        differences in outcomes can be attributed directly
+        to execution logic.
+    </p>
+
+    <p>
+        In particular, reductions in late payments
+        without corresponding increases in failed payments
+        indicate that lateness was not required
+        to preserve solvency.
+    </p>
+
+    <p>
+        The simulation does not claim to model all real-world complexity.
+        Its purpose is to demonstrate that,
+        under realistic constraints,
+        execution timing alone can materially affect outcomes.
+    </p>
+
 </body>
 
 </html>
