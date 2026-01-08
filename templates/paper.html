@@ -61,6 +61,8 @@
         Working draft — exploratory research
     </p>
 
+    <!-- SECTION 1 -->
+
     <h2>1. Problem Statement: Lateness as a Systems Failure</h2>
 
     <h3>1.1 What we observe</h3>
@@ -153,6 +155,106 @@
         is in fact a consequence of missing execution intelligence —
         and that this class of failure can be materially reduced
         without changes to payment rails, income, or user behaviour.
+    </p>
+
+    <!-- SECTION 2 -->
+
+    <h2>2. How Current Payment Systems Actually Work</h2>
+
+    <h3>2.1 Fixed instructions on rigid rails</h3>
+
+    <p>
+        Most consumer payment systems are built around fixed instructions
+        executed on fixed schedules.
+        Common mechanisms include direct debits, standing orders,
+        and card payment due dates.
+    </p>
+
+    <p>
+        While these mechanisms differ in their technical implementation,
+        they share a common design assumption:
+        that a single, predefined execution date is sufficient.
+    </p>
+
+    <p>
+        In practice, payment rails impose additional constraints:
+    </p>
+
+    <ul>
+        <li>bank holidays and weekends may prevent execution</li>
+        <li>settlement windows vary by method</li>
+        <li>retry behaviour is coarse and reactive</li>
+    </ul>
+
+    <p>
+        These constraints are typically invisible to end users,
+        yet they materially affect whether a payment succeeds on time.
+    </p>
+
+    <h3>2.2 Humans as the control loop</h3>
+
+    <p>
+        Because execution rules are static,
+        responsibility for handling real-world variability
+        is implicitly delegated to the user.
+    </p>
+
+    <p>
+        Individuals are expected to:
+    </p>
+
+    <ul>
+        <li>notice when income arrives</li>
+        <li>anticipate upcoming obligations</li>
+        <li>account for weekends and holidays</li>
+        <li>manually intervene when schedules misalign</li>
+    </ul>
+
+    <p>
+        This expectation is rarely stated explicitly,
+        but it is evident in how payment failures are handled.
+        When a payment is late, the system records the outcome,
+        not the context that led to it.
+    </p>
+
+    <p>
+        The user effectively acts as the adaptive layer
+        compensating for rigid execution logic.
+    </p>
+
+    <h3>2.3 Failure as an accepted operating state</h3>
+
+    <p>
+        Modern payment systems are not designed to prevent all failure.
+        Instead, they incorporate mechanisms to manage it.
+    </p>
+
+    <p>
+        These include:
+    </p>
+
+    <ul>
+        <li>automatic retries</li>
+        <li>late fees and penalty charges</li>
+        <li>interest accrual</li>
+        <li>arrears escalation workflows</li>
+    </ul>
+
+    <p>
+        The presence of these mechanisms implies an underlying assumption:
+        that a certain level of failure is normal and unavoidable.
+    </p>
+
+    <p>
+        As a result, system design has prioritised
+        recovering from missed payments
+        rather than eliminating the conditions that cause them.
+    </p>
+
+    <p>
+        This paper does not argue that all payment failure can be removed.
+        It argues that failure caused purely by timing and execution constraints
+        should not be treated as inevitable.
     </p>
 
 </body>
