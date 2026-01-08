@@ -57,7 +57,7 @@ def run_simulation(
     start_balance: int,
     start_day: int,
     end_day: int,
-    verbose: bool = False,
+    verbose: bool = False,  # retained for future use
 ) -> Result:
     """
     Execution-aware payment scheduler.
@@ -83,10 +83,9 @@ def run_simulation(
         # Income lands
         if day in income_by_day:
             balance += income_by_day[day]
-            if verbose:
-                result.trace.append(
-                    f"Day {day}: salary +£{income_by_day[day]} → balance £{balance}"
-                )
+            result.trace.append(
+                f"Day {day}: salary +£{income_by_day[day]} → balance £{balance}"
+            )
 
         # Obligations processed in due-date order
         for ob in sorted(obligations, key=lambda o: o.due_day):
@@ -94,27 +93,26 @@ def run_simulation(
             if ob.paid or ob.failed:
                 continue
 
-            # If we've passed the due date without paying, this is a failure
+            # Missed the due date entirely
             if day > ob.due_day:
                 ob.failed = True
                 result.failed += 1
-                if verbose:
-                    result.trace.append(
-                        f"Day {day}: ❌ FAILED {ob.name} "
-                        f"(due {ob.due_day}, £{ob.amount})"
-                    )
+                result.trace.append(
+                    f"Day {day}: ❌ FAILED {ob.name} "
+                    f"(due {ob.due_day}, £{ob.amount})"
+                )
                 continue
 
             # Cannot execute today (weekend)
             if not can_execute(day):
                 continue
 
-            # Find remaining executable days up to due date
+            # Remaining executable days
             future_exec_days = [
                 d for d in range(day + 1, ob.due_day + 1) if can_execute(d)
             ]
 
-            # Determine whether today is the last safe execution opportunity
+            # Is today the last safe opportunity?
             if future_exec_days:
                 last_exec_day = future_exec_days[-1]
                 future_income = sum(
@@ -122,33 +120,30 @@ def run_simulation(
                 )
                 last_safe = (balance + future_income - ob.amount) < 0
             else:
-                # No future execution opportunities
                 last_safe = True
 
-            # If today is the last safe moment, act
+            # Act if required
             if last_safe:
                 if balance - ob.amount < 0:
                     ob.failed = True
                     result.failed += 1
-                    if verbose:
-                        result.trace.append(
-                            f"Day {day}: ❌ FAILED {ob.name} "
-                            f"(£{ob.amount}, balance £{balance})"
-                        )
+                    result.trace.append(
+                        f"Day {day}: ❌ FAILED {ob.name} "
+                        f"(£{ob.amount}, balance £{balance})"
+                    )
                 else:
                     balance -= ob.amount
                     ob.paid = True
                     ob.paid_day = day
                     result.on_time += 1
 
-                    if verbose:
-                        delta = ob.due_day - day
-                        timing = "on due date" if delta == 0 else f"{delta} days early"
-                        result.trace.append(
-                            f"Day {day}: ✅ PAID {ob.name} "
-                            f"(£{ob.amount}, due {ob.due_day}, {timing}) "
-                            f"→ balance £{balance}"
-                        )
+                    delta = ob.due_day - day
+                    timing = "on due date" if delta == 0 else f"{delta} days early"
+                    result.trace.append(
+                        f"Day {day}: ✅ PAID {ob.name} "
+                        f"(£{ob.amount}, due {ob.due_day}, {timing}) "
+                        f"→ balance £{balance}"
+                    )
 
         result.lowest_balance = min(result.lowest_balance, balance)
 
