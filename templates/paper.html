@@ -893,6 +893,198 @@
         and the constraints such an approach must respect.
     </p>
 
+    <!-- SECTION 7 -->
+
+    <h2>7. Constraints, Deployment, and Open Questions</h2>
+
+    <h3>7.1 Practical constraints</h3>
+
+    <p>
+        Any execution-aware layer must operate within
+        the constraints of existing financial systems.
+    </p>
+
+    <p>
+        These constraints include:
+    </p>
+
+    <ul>
+        <li>limited execution windows imposed by payment rails</li>
+        <li>calendar effects such as weekends and bank holidays</li>
+        <li>variation in settlement times across payment methods</li>
+        <li>regulatory boundaries around custody and initiation</li>
+    </ul>
+
+    <p>
+        The model explored in this paper assumes
+        that execution decisions are made
+        without altering these underlying constraints.
+    </p>
+
+    <p>
+        This limits scope, but increases deployability.
+    </p>
+
+    <h3>7.2 Incremental deployment</h3>
+
+    <p>
+        A key property of the execution layer described here
+        is that it can be introduced incrementally.
+    </p>
+
+    <p>
+        Because it does not require changes to:
+    </p>
+
+    <ul>
+        <li>payment rails</li>
+        <li>account structures</li>
+        <li>user behaviour</li>
+    </ul>
+
+    <p>
+        it can coexist with existing mechanisms
+        such as direct debits, standing orders,
+        and manual payments.
+    </p>
+
+    <p>
+        Early deployment could focus on:
+    </p>
+
+    <ul>
+        <li>high-frequency obligations</li>
+        <li>payments clustered around non-executable days</li>
+        <li>users who already intervene manually</li>
+    </ul>
+
+    <p>
+        This allows benefits to be realised
+        without requiring wholesale system change.
+    </p>
+
+    <h3>7.3 Transparency and trust</h3>
+
+    <p>
+        Execution-aware automation introduces questions of trust.
+    </p>
+
+    <p>
+        For such a system to be acceptable,
+        its operation must be:
+    </p>
+
+    <ul>
+        <li>deterministic</li>
+        <li>explainable</li>
+        <li>visible to the user</li>
+    </ul>
+
+    <p>
+        Users must be able to see
+        why a payment was executed on a given day,
+        and why an alternative day was not chosen.
+    </p>
+
+    <p>
+        Without this transparency,
+        automation risks reproducing
+        the same opacity that characterises
+        many existing financial systems.
+    </p>
+
+    <h3>7.4 Open questions</h3>
+
+    <p>
+        This work raises several questions
+        that require further investigation.
+    </p>
+
+    <ul>
+        <li>
+            How large is the population affected by avoidable lateness,
+            and how does it vary across obligation types?
+        </li>
+        <li>
+            What execution windows are acceptable
+            across different payment contexts?
+        </li>
+        <li>
+            How should systems communicate
+            unavoidable insufficiency early and fairly?
+        </li>
+        <li>
+            Where should the boundary lie
+            between execution assistance and financial advice?
+        </li>
+    </ul>
+
+    <p>
+        These questions are not addressed fully here.
+        They are surfaced deliberately
+        to guide further work.
+    </p>
+
+    <h3>7.5 Scope discipline</h3>
+
+    <p>
+        A recurring theme of this paper
+        is restraint.
+    </p>
+
+    <p>
+        The execution layer described here
+        is intentionally narrow in scope.
+    </p>
+
+    <p>
+        Expanding its responsibilities
+        to include budgeting, optimisation,
+        or behavioural nudging
+        would weaken its clarity and reliability.
+    </p>
+
+    <p>
+        Treating execution as infrastructure
+        requires resisting the temptation
+        to solve adjacent problems prematurely.
+    </p>
+
+    <h3>7.6 Conclusion</h3>
+
+    <p>
+        Payment systems are often evaluated
+        in terms of access, speed, and cost.
+    </p>
+
+    <p>
+        Execution timing is typically treated as secondary.
+    </p>
+
+    <p>
+        This paper argues that execution timing
+        deserves consideration as a first-class concern.
+    </p>
+
+    <p>
+        By isolating execution from behaviour,
+        and timing from intent,
+        it becomes possible to reduce harm
+        without introducing new risk.
+    </p>
+
+    <p>
+        Whether such an approach is adopted widely
+        remains an open question.
+    </p>
+
+    <p>
+        What the simulation demonstrates
+        is that avoidable lateness is not inevitable,
+        and that execution logic alone
+        can materially change outcomes.
+    </p>
+
 
 </body>
 
