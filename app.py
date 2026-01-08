@@ -11,7 +11,7 @@ def index():
 
 @app.route("/paper")
 def paper():
-    return "<h1>White paper coming soon</h1>"
+    return render_template("paper.html")
 
 
 @app.route("/sim", methods=["GET", "POST"])

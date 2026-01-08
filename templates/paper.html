@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Payment Execution as Infrastructure — White Paper</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            margin: 40px;
+            line-height: 1.6;
+            max-width: 820px;
+        }
+
+        h1,
+        h2,
+        h3 {
+            margin-top: 2em;
+        }
+
+        h1 {
+            margin-top: 0;
+        }
+
+        p {
+            margin: 1em 0;
+        }
+
+        ul {
+            margin: 1em 0 1em 1.5em;
+        }
+
+        blockquote {
+            margin: 1.5em 0;
+            padding-left: 1em;
+            border-left: 3px solid #ccc;
+            color: #555;
+        }
+
+        a {
+            color: #0066cc;
+            text-decoration: none;
+        }
+
+        .meta {
+            color: #666;
+            font-size: 0.95em;
+        }
+    </style>
+</head>
+
+<body>
+
+    <a href="/">← Back to overview</a>
+
+    <h1>Payment Execution as Infrastructure</h1>
+
+    <p class="meta">
+        Working draft — exploratory research
+    </p>
+
+    <h2>1. Problem Statement: Lateness as a Systems Failure</h2>
+
+    <h3>1.1 What we observe</h3>
+
+    <p>
+        Late payments are a routine feature of modern personal finance.
+        They occur across rent, utilities, council tax, and credit cards,
+        and are commonly treated as an expected operational outcome.
+    </p>
+
+    <p>
+        The downstream consequences of lateness are well known:
+    </p>
+
+    <ul>
+        <li>late fees and penalty charges</li>
+        <li>interest accrual</li>
+        <li>arrears management processes</li>
+        <li>credit file impact</li>
+        <li>stress, uncertainty, and loss of trust</li>
+    </ul>
+
+    <p>
+        These outcomes are often framed as the result of individual behaviour,
+        financial literacy, or insufficient income.
+        While these factors are real and important,
+        they do not fully explain the observed patterns of lateness.
+    </p>
+
+    <h3>1.2 The critical distinction</h3>
+
+    <p>
+        This paper focuses on a narrower and frequently overlooked category:
+        <strong>late payments that occur despite sufficient funds and clear intent to pay</strong>.
+    </p>
+
+    <p>
+        In these cases, the issue is not unwillingness, nor absolute inability,
+        but a mismatch between:
+    </p>
+
+    <ul>
+        <li>when income arrives</li>
+        <li>when obligations are due</li>
+        <li>and how rigid execution rules are applied</li>
+    </ul>
+
+    <p>
+        We refer to this class of outcomes as <em>avoidable lateness</em>.
+    </p>
+
+    <blockquote>
+        Avoidable lateness arises when payment failure is caused by timing and execution constraints,
+        rather than by a lack of funds.
+    </blockquote>
+
+    <p>
+        Importantly, existing systems rarely distinguish between unavoidable and avoidable failure.
+        Both are processed through the same retry logic, penalty structures,
+        and downstream workflows.
+    </p>
+
+    <h3>1.3 Why this matters</h3>
+
+    <p>
+        When systems cannot distinguish between inability and mistiming,
+        they respond to both in the same way.
+        This has several consequences.
+    </p>
+
+    <p>
+        For individuals, it encourages defensive behaviours such as
+        over-buffering current accounts, keeping funds idle,
+        or relying on manual intervention to prevent accidental failure.
+    </p>
+
+    <p>
+        For billers and financial institutions, it introduces noise into risk signals,
+        increases retry and support costs,
+        and necessitates punitive mechanisms to compensate for uncertainty.
+    </p>
+
+    <p>
+        At a system level, it normalises failure modes that are not inevitable,
+        and shifts responsibility for execution reliability onto end users.
+    </p>
+
+    <p>
+        This paper argues that a portion of lateness widely treated as unavoidable
+        is in fact a consequence of missing execution intelligence —
+        and that this class of failure can be materially reduced
+        without changes to payment rails, income, or user behaviour.
+    </p>
+
+</body>
+
+</html>
