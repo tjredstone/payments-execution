@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Dict
 
 
@@ -30,7 +30,7 @@ class BaselineResult:
     failed: int = 0
     total_days_late: int = 0
     lowest_balance: int = 10**9
-    trace: List[str] = None
+    trace: List[str] = field(default_factory=list)
 
 
 # =========================
@@ -79,7 +79,7 @@ def run_baseline_simulation(
         bank_holidays = []
 
     balance = start_balance
-    result = BaselineResult(trace=[])
+    result = BaselineResult()
 
     income_by_day: Dict[int, int] = {}
     for inc in income:
@@ -97,10 +97,10 @@ def run_baseline_simulation(
         # Income lands
         if day in income_by_day:
             balance += income_by_day[day]
+            line = f"Day {day}: salary +£{income_by_day[day]} → balance £{balance}"
+            result.trace.append(line)
             if verbose:
-                result.trace.append(
-                    f"Day {day}: salary +£{income_by_day[day]} → balance £{balance}"
-                )
+                print(line)
 
         # Attempt payments scheduled for today
         for ob in execution_days.get(day, []):
@@ -119,23 +119,27 @@ def run_baseline_simulation(
                     result.total_days_late += days_late
                     status = f"{days_late} days late"
 
+                line = (
+                    f"Day {day}: {'⚠️' if day > ob.due_day else '✅'} "
+                    f"PAID {ob.name} (£{ob.amount}, due {ob.due_day}, {status}) "
+                    f"→ balance £{balance}"
+                )
+                result.trace.append(line)
                 if verbose:
-                    result.trace.append(
-                        f"Day {day}: {'⚠️' if day > ob.due_day else '✅'} "
-                        f"PAID {ob.name} (£{ob.amount}, due {ob.due_day}, {status}) "
-                        f"→ balance £{balance}"
-                    )
+                    print(line)
 
             else:
                 # Payment attempt fails (insufficient funds)
                 ob.failed = True
                 result.failed += 1
 
+                line = (
+                    f"Day {day}: ❌ FAILED {ob.name} "
+                    f"(£{ob.amount}, due {ob.due_day}) → balance £{balance}"
+                )
+                result.trace.append(line)
                 if verbose:
-                    result.trace.append(
-                        f"Day {day}: ❌ FAILED {ob.name} (£{ob.amount}, due {ob.due_day}) "
-                        f"→ balance £{balance}"
-                    )
+                    print(line)
 
         result.lowest_balance = min(result.lowest_balance, balance)
 
