@@ -257,6 +257,141 @@
         should not be treated as inevitable.
     </p>
 
+    <!-- SECTION 3 -->
+
+    <h2>3. Payment Execution as a Missing Layer</h2>
+
+    <h3>3.1 Intent versus execution</h3>
+
+    <p>
+        People do not think about payments in terms of settlement rails,
+        retry logic, or execution windows.
+        They think in outcomes.
+    </p>
+
+    <p>
+        Common expressions of intent include:
+    </p>
+
+    <ul>
+        <li>“Do not let this go late by accident.”</li>
+        <li>“Do not take money before I am paid.”</li>
+        <li>“If this cannot be paid, tell me early.”</li>
+    </ul>
+
+    <p>
+        Current payment systems do not operate on these intents directly.
+        Instead, users are required to translate intent into fixed instructions,
+        such as a due date, a standing order, or a direct debit mandate.
+    </p>
+
+    <p>
+        Once an instruction is set, the system executes it mechanically.
+        If the instruction fails due to timing, availability, or execution constraints,
+        the system records the outcome but does not revisit the original intent.
+    </p>
+
+    <p>
+        This gap between intent and execution is where avoidable lateness arises.
+    </p>
+
+    <h3>3.2 The missing abstraction</h3>
+
+    <p>
+        Between user intent and payment rails, there is no dedicated layer
+        responsible for determining <em>when</em> a payment should be executed
+        to maximise the likelihood of on-time success.
+    </p>
+
+    <p>
+        Instead, timing decisions are either:
+    </p>
+
+    <ul>
+        <li>fixed in advance, or</li>
+        <li>implicitly delegated to the user</li>
+    </ul>
+
+    <p>
+        This paper proposes payment execution as a distinct infrastructure concern:
+        a layer that exists solely to decide <strong>when</strong> to act,
+        given known constraints and explicit intent.
+    </p>
+
+    <p>
+        Such a layer would:
+    </p>
+
+    <ul>
+        <li>observe upcoming obligations and their deadlines</li>
+        <li>observe incoming funds within a known lookahead window</li>
+        <li>account for execution constraints such as weekends or holidays</li>
+        <li>select an execution time that preserves intent</li>
+    </ul>
+
+    <p>
+        Importantly, this layer does not alter the payment itself.
+        It does not change the amount, the recipient, or the rails used.
+        It changes only the timing of execution.
+    </p>
+
+    <h3>3.3 What this layer does not do</h3>
+
+    <p>
+        To remain narrowly scoped and interpretable,
+        payment execution as defined here explicitly does not:
+    </p>
+
+    <ul>
+        <li>hold or custody funds</li>
+        <li>extend credit</li>
+        <li>provide financial advice</li>
+        <li>modify underlying payment rails</li>
+    </ul>
+
+    <p>
+        It operates using read-only financial context,
+        explicit user consent, and deterministic rules.
+    </p>
+
+    <p>
+        By design, this layer does not attempt to optimise spending,
+        predict behaviour, or influence financial decisions.
+        Its sole responsibility is to preserve stated intent
+        in the presence of real-world timing variability.
+    </p>
+
+    <h3>3.4 Reframing failure</h3>
+
+    <p>
+        Introducing an execution layer changes how payment failure is interpreted.
+    </p>
+
+    <p>
+        In current systems, a late payment provides limited information.
+        It may indicate insufficient funds, but it may equally indicate
+        mistiming, execution constraints, or lack of intervention.
+    </p>
+
+    <p>
+        In an execution-aware system,
+        where timing decisions are handled automatically,
+        late or failed payments become a more meaningful signal.
+    </p>
+
+    <p>
+        They indicate that, within the known window,
+        available funds were insufficient to satisfy the obligation
+        without violating stated constraints.
+    </p>
+
+    <p>
+        This distinction matters.
+        It allows systems to respond differently to genuine insufficiency
+        versus avoidable execution failure,
+        and to design downstream processes accordingly.
+    </p>
+
 </body>
 
 </html>
