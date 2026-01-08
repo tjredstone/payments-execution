@@ -548,6 +548,171 @@
         execution timing alone can materially affect outcomes.
     </p>
 
+    <!-- SECTION 5 -->
+
+    <h2>5. Results</h2>
+
+    <h3>5.1 Overview</h3>
+
+    <p>
+        The simulation compares two execution models operating on identical inputs:
+        a baseline model representing prevailing payment behaviour,
+        and an execution-aware model that adjusts timing within known constraints.
+    </p>
+
+    <p>
+        Across all runs, income amounts, obligation values,
+        calendars, and starting balances are held constant.
+        Only execution logic differs.
+    </p>
+
+    <h3>5.2 Reduction in late payments</h3>
+
+    <p>
+        Under the baseline model,
+        payments due shortly after non-executable days
+        (such as weekends or bank holidays)
+        are frequently executed late.
+    </p>
+
+    <p>
+        These late payments typically occur despite sufficient funds being available
+        within the surrounding execution window.
+    </p>
+
+    <p>
+        Under the execution-aware model,
+        the same obligations are executed earlier where necessary,
+        resulting in a consistent reduction in late payments.
+    </p>
+
+    <p>
+        In representative scenarios:
+    </p>
+
+    <ul>
+        <li>late payments are reduced to zero</li>
+        <li>total days late are eliminated</li>
+        <li>no additional payment failures are introduced</li>
+    </ul>
+
+    <p>
+        This indicates that the observed lateness in the baseline model
+        is not required to preserve solvency,
+        but arises from rigid execution timing.
+    </p>
+
+    <h3>5.3 Liquidity impact</h3>
+
+    <p>
+        A potential concern with earlier execution
+        is that it may increase liquidity risk
+        by reducing account balances prematurely.
+    </p>
+
+    <p>
+        The simulation tracks the lowest observed balance
+        under both models.
+    </p>
+
+    <p>
+        Across tested scenarios,
+        the execution-aware model does not produce
+        a lower minimum balance than the baseline model.
+    </p>
+
+    <p>
+        In cases where payments are executed earlier,
+        this occurs only when delaying execution
+        would introduce execution risk.
+    </p>
+
+    <p>
+        As a result, early execution is conditional,
+        not default.
+    </p>
+
+    <h3>5.4 Interpreting avoided lateness</h3>
+
+    <p>
+        The avoided late payments observed in the simulation
+        fall into a specific category:
+    </p>
+
+    <ul>
+        <li>funds are sufficient within the execution window</li>
+        <li>lateness is caused by calendar or timing constraints</li>
+        <li>manual intervention would have prevented the outcome</li>
+    </ul>
+
+    <p>
+        These outcomes are therefore best understood
+        as <em>avoidable</em> rather than inevitable.
+    </p>
+
+    <p>
+        The execution-aware model does not prevent
+        late payments caused by genuine insufficiency.
+        When income is insufficient within the available window,
+        payments still fail.
+    </p>
+
+    <p>
+        This distinction is important:
+        the model reduces false negatives
+        without masking real financial shortfall.
+    </p>
+
+    <h3>5.5 What the results do not claim</h3>
+
+    <p>
+        The simulation does not demonstrate:
+    </p>
+
+    <ul>
+        <li>that all payment failure can be eliminated</li>
+        <li>that income volatility is solved</li>
+        <li>that debt or affordability issues disappear</li>
+    </ul>
+
+    <p>
+        It demonstrates a narrower claim:
+        that a measurable portion of late payments
+        commonly treated as unavoidable
+        can be eliminated through execution logic alone.
+    </p>
+
+    <p>
+        This reduction occurs without:
+    </p>
+
+    <ul>
+        <li>changes to user behaviour</li>
+        <li>changes to payment rails</li>
+        <li>introduction of credit or buffering requirements</li>
+    </ul>
+
+    <h3>5.6 Summary</h3>
+
+    <p>
+        The results suggest that payment execution timing
+        is an under-addressed source of failure
+        in current consumer payment systems.
+    </p>
+
+    <p>
+        By treating execution as a first-class concern,
+        it is possible to reduce late payments materially
+        while preserving solvency and transparency.
+    </p>
+
+    <p>
+        The implications of this finding
+        extend beyond individual payment success
+        and are considered in the following section.
+    </p>
+
+
 </body>
 
 </html>
