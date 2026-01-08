@@ -123,6 +123,10 @@
     <!-- RESULTS (only shown after run) -->
     {% if has_run %}
 
+    <p>
+        Both models use identical inputs. Differences below are caused by execution timing alone.
+    </p>
+
     <div class="summary">
         <h2>Summary</h2>
 
@@ -137,6 +141,7 @@
         <h3>Execution-aware system</h3>
         <ul>
             <li class="good">On-time payments: {{ execution.on_time }}</li>
+            <li>Late payments: 0</li>
             <li>Failed payments: {{ execution.failed }}</li>
         </ul>
     </div>
@@ -144,6 +149,7 @@
     <div class="grid">
         <div>
             <h2>Baseline trace</h2>
+            <p><em>Event-by-event execution trace</em></p>
             <pre>
 {% for line in baseline.trace %}
 {{ line }}
@@ -153,6 +159,7 @@
 
         <div>
             <h2>Execution-aware trace</h2>
+            <p><em>Event-by-event execution trace</em></p>
             <pre>
 {% for line in execution.trace %}
 {{ line }}
