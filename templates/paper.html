@@ -712,6 +712,187 @@
         and are considered in the following section.
     </p>
 
+    <!-- SECTION 6 -->
+
+    <h2>6. Implications and System-Level Effects</h2>
+
+    <h3>6.1 Shifting where reliability lives</h3>
+
+    <p>
+        In current consumer payment systems,
+        reliability is achieved primarily through user behaviour.
+    </p>
+
+    <p>
+        Individuals are expected to anticipate timing issues,
+        maintain buffers, intervene manually,
+        and absorb the consequences when execution fails.
+    </p>
+
+    <p>
+        An execution-aware layer changes where reliability is enforced.
+        Instead of relying on human vigilance,
+        timing resilience is handled systematically.
+    </p>
+
+    <p>
+        This does not remove user responsibility,
+        but it reduces the need for constant intervention
+        to manage predictable execution edge cases.
+    </p>
+
+    <h3>6.2 Cleaner signals for genuine risk</h3>
+
+    <p>
+        When avoidable lateness is common,
+        late payment signals are noisy.
+    </p>
+
+    <p>
+        A late payment may indicate:
+    </p>
+
+    <ul>
+        <li>temporary mistiming</li>
+        <li>a weekend or holiday constraint</li>
+        <li>missed manual intervention</li>
+        <li>or genuine financial shortfall</li>
+    </ul>
+
+    <p>
+        Treating all of these outcomes identically
+        forces downstream systems to respond defensively.
+    </p>
+
+    <p>
+        By reducing execution-related lateness,
+        remaining failures become more informative.
+    </p>
+
+    <p>
+        This enables clearer differentiation between:
+    </p>
+
+    <ul>
+        <li>insufficiency that requires support or restructuring</li>
+        <li>and execution failure that does not</li>
+    </ul>
+
+    <h3>6.3 Downstream cost reduction</h3>
+
+    <p>
+        Late payments generate costs beyond the payment itself.
+    </p>
+
+    <p>
+        For billers and financial institutions,
+        these include:
+    </p>
+
+    <ul>
+        <li>retry attempts</li>
+        <li>arrears workflows</li>
+        <li>support interactions</li>
+        <li>collections and remediation processes</li>
+    </ul>
+
+    <p>
+        These processes exist not only to recover funds,
+        but to manage uncertainty.
+    </p>
+
+    <p>
+        When execution becomes more predictable,
+        the need for punitive or compensatory mechanisms diminishes.
+    </p>
+
+    <p>
+        While this paper does not quantify cost savings directly,
+        the reduction of avoidable failure
+        implies a reduction in associated operational overhead.
+    </p>
+
+    <h3>6.4 Implications for user experience</h3>
+
+    <p>
+        For individuals,
+        execution-aware timing reduces the need
+        to maintain defensive balances
+        or to manually sequence payments around income events.
+    </p>
+
+    <p>
+        It also reduces the cognitive burden of monitoring dates,
+        holidays, and settlement behaviour.
+    </p>
+
+    <p>
+        Importantly, this is achieved without:
+    </p>
+
+    <ul>
+        <li>restricting spending</li>
+        <li>changing account structure</li>
+        <li>introducing opaque automation</li>
+    </ul>
+
+    <p>
+        Users retain visibility and control,
+        while the system handles predictable timing constraints.
+    </p>
+
+    <h3>6.5 Limitations and boundaries</h3>
+
+    <p>
+        Execution-aware timing is not a solution
+        to all payment-related harm.
+    </p>
+
+    <p>
+        It does not:
+    </p>
+
+    <ul>
+        <li>create income where none exists</li>
+        <li>resolve chronic affordability issues</li>
+        <li>eliminate debt</li>
+    </ul>
+
+    <p>
+        Where obligations exceed income,
+        failure remains unavoidable.
+    </p>
+
+    <p>
+        However, by removing execution noise,
+        these cases can be identified earlier and more clearly.
+    </p>
+
+    <p>
+        This distinction matters when designing
+        fair responses to financial difficulty.
+    </p>
+
+    <h3>6.6 Summary</h3>
+
+    <p>
+        Treating payment execution as infrastructure
+        alters how responsibility, risk, and failure are distributed
+        across the system.
+    </p>
+
+    <p>
+        By addressing timing as a first-class concern,
+        it is possible to reduce harm
+        without increasing complexity or opacity.
+    </p>
+
+    <p>
+        The following section considers
+        how this execution layer could be introduced in practice,
+        and the constraints such an approach must respect.
+    </p>
+
 
 </body>
 
