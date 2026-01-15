@@ -1,0 +1,5 @@
+.env
+rentbot.db
+__pycache__/
+*.pyc
+venv/
