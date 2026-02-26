@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rent Advisory Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Treasury-Inspired Payment Advisory</p>
+        <h1>Rent Advisory Dashboard</h1>
+        <p class="sub">Read-only Open Banking intelligence over your existing accounts.</p>
+      </div>
+      <div class="actions">
+        <p class="user-pill">{{ user_email }}</p>
+        <a class="btn primary" href="/connect">Connect via TrueLayer</a>
+        <form action="/logout" method="post" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn secondary" type="submit">Sign out</button>
+        </form>
+      </div>
+    </header>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Status</h2>
+      </div>
+      {% if connected %}
+        <p class="ok">Connected</p>
+      {% else %}
+        <p class="warn">Not connected yet. Link an account to populate live advisory outputs.</p>
+      {% endif %}
+    </section>
+
+    {% if connected %}
+      <section id="loading" class="panel">
+        <p>Loading advisory view...</p>
+      </section>
+
+      <section id="error" class="panel hidden">
+        <p class="warn"></p>
+      </section>
+
+      <section id="dashboard-content" class="hidden">
+        <section class="grid">
+          <article class="card">
+            <p class="label">Available Total</p>
+            <p class="value" id="metric-available">-</p>
+          </article>
+          <article class="card">
+            <p class="label">Allocatable Cash</p>
+            <p class="value" id="metric-allocatable">-</p>
+          </article>
+          <article class="card">
+            <p class="label">Obligations (<span id="metric-window">14</span>d)</p>
+            <p class="value" id="metric-obligations">-</p>
+          </article>
+          <article class="card">
+            <p class="label">Decisions</p>
+            <p class="value" id="metric-decisions">-</p>
+          </article>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Risk Flags</h2>
+          </div>
+          <ul class="list" id="risk-flags"></ul>
+          <p class="ok hidden" id="risk-empty">No active risk flags.</p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Current Decisions</h2>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Action</th>
+                  <th>Counterparty</th>
+                  <th>Due</th>
+                  <th>Amount</th>
+                  <th>Reason</th>
+                </tr>
+              </thead>
+              <tbody id="decisions-body"></tbody>
+            </table>
+          </div>
+          <p class="hidden" id="decisions-empty">No decisions in the current window.</p>
+        </section>
+      </section>
+    {% endif %}
+
+    <footer class="footnote">
+      Informational guidance only. Not financial advice. Always verify obligations and payment timing yourself.
+    </footer>
+  </main>
+
+  {% if connected %}
+    <script>
+      (() => {
+        const locale = navigator.language || "en-GB";
+        const loadingEl = document.getElementById("loading");
+        const errorPanel = document.getElementById("error");
+        const errorText = errorPanel.querySelector("p");
+        const contentEl = document.getElementById("dashboard-content");
+
+        const friendlyAction = (item) => {
+          const action = String(item.action || "-");
+          if (action === "WAIT" && item.recommended_execution_date) {
+            return `WAIT UNTIL ${localDate(item.recommended_execution_date)}`;
+          }
+          return action.replaceAll("_", " ");
+        };
+
+        const friendlyReason = (item) => {
+          const action = String(item.action || "");
+          const dueInDays = Number(item.due_in_days ?? 999);
+          const amount = money(item.recommended_amount, item.currency || "GBP");
+
+          if (action === "PAY_NOW") {
+            if (dueInDays <= 0) return `Due now. Recommended to pay ${amount} today.`;
+            return `Due soon. Recommended to pay ${amount} now to avoid risk.`;
+          }
+          if (action === "WAIT") {
+            return `Safe to wait for now. Planned payment date is ${localDate(item.recommended_execution_date)}.`;
+          }
+          if (action === "PARTIAL_PAY") {
+            return `Cash is tight right now. Suggested partial payment is ${amount}.`;
+          }
+          if (action === "HOLD_AND_ALERT") {
+            return "Hold this payment for now and review manually before proceeding.";
+          }
+
+          const raw = (item.rationale && item.rationale[0]) ? item.rationale[0] : "";
+          return raw || "Recommendation available.";
+        };
+
+        const money = (amount, currency = "GBP") => {
+          try {
+            return new Intl.NumberFormat(locale, {
+              style: "currency",
+              currency,
+              currencyDisplay: "symbol",
+            }).format(Number(amount || 0));
+          } catch {
+            return `${currency} ${Number(amount || 0).toFixed(2)}`;
+          }
+        };
+
+        const localDate = (isoDate) => {
+          if (!isoDate) return "-";
+          const dt = new Date(`${isoDate}T00:00:00`);
+          if (Number.isNaN(dt.getTime())) return isoDate;
+          try {
+            return new Intl.DateTimeFormat(locale).format(dt);
+          } catch {
+            return isoDate;
+          }
+        };
+
+        const showError = (message) => {
+          loadingEl.classList.add("hidden");
+          contentEl.classList.add("hidden");
+          errorPanel.classList.remove("hidden");
+          errorText.textContent = message;
+        };
+
+        fetch("/api/dashboard", { headers: { "Accept": "application/json" } })
+          .then((r) => r.json())
+          .then((data) => {
+            if (!data.connected) {
+              showError("No connected account found.");
+              return;
+            }
+            if (data.error) {
+              showError(data.error);
+              return;
+            }
+
+            const d = data.dashboard || {};
+            const summary = d.summary || {};
+            const flags = d.risk_flags || [];
+            const decisions = d.decisions || [];
+
+            document.getElementById("metric-available").textContent = money(summary.available_total, "GBP");
+            document.getElementById("metric-allocatable").textContent = money(summary.allocatable_cash_remaining, "GBP");
+            document.getElementById("metric-window").textContent = d.window_days || 14;
+            document.getElementById("metric-obligations").textContent = String(summary.obligations_in_window ?? 0);
+            document.getElementById("metric-decisions").textContent = String(summary.decisions ?? 0);
+
+            const flagsEl = document.getElementById("risk-flags");
+            const flagsEmptyEl = document.getElementById("risk-empty");
+            flagsEl.innerHTML = "";
+            if (flags.length === 0) {
+              flagsEmptyEl.classList.remove("hidden");
+            } else {
+              flagsEmptyEl.classList.add("hidden");
+              flags.forEach((flag) => {
+                const li = document.createElement("li");
+                const text = flag.flag === "income_streams_mirrored"
+                  ? "Some incoming payments look duplicated across linked accounts, so predicted incoming cash may be overstated."
+                  : (flag.detail || "Risk flag raised.");
+                li.innerHTML = `<strong>${String(flag.severity || "").toUpperCase()}</strong> ${text}`;
+                flagsEl.appendChild(li);
+              });
+            }
+
+            const decisionsBody = document.getElementById("decisions-body");
+            const decisionsEmptyEl = document.getElementById("decisions-empty");
+            decisionsBody.innerHTML = "";
+            if (decisions.length === 0) {
+              decisionsEmptyEl.classList.remove("hidden");
+            } else {
+              decisionsEmptyEl.classList.add("hidden");
+              decisions.forEach((item) => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                  <td><span class="chip">${friendlyAction(item)}</span></td>
+                  <td>${item.counterparty || "-"}</td>
+                  <td>${localDate(item.due_date)}</td>
+                  <td>${money(item.recommended_amount, item.currency || "GBP")}</td>
+                  <td>${friendlyReason(item)}</td>
+                `;
+                decisionsBody.appendChild(tr);
+              });
+            }
+
+            loadingEl.classList.add("hidden");
+            errorPanel.classList.add("hidden");
+            contentEl.classList.remove("hidden");
+          })
+          .catch(() => showError("Could not load dashboard data."));
+      })();
+    </script>
+  {% endif %}
+</body>
+</html>

@@ -1,5 +1,6 @@
-import os
 from dataclasses import dataclass
+
+from secret_store import read_secret
 
 
 @dataclass(frozen=True)
@@ -15,7 +16,7 @@ class TrueLayerConfig:
 
 def load_truelayer_config() -> TrueLayerConfig:
     return TrueLayerConfig(
-        client_id=os.environ["TRUELAYER_CLIENT_ID"],
-        client_secret=os.environ["TRUELAYER_CLIENT_SECRET"],
-        redirect_uri=os.environ["TRUELAYER_REDIRECT_URI"],
+        client_id=read_secret("TRUELAYER_CLIENT_ID"),
+        client_secret=read_secret("TRUELAYER_CLIENT_SECRET"),
+        redirect_uri=read_secret("TRUELAYER_REDIRECT_URI"),
     )

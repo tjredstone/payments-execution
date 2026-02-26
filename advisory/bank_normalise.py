@@ -12,7 +12,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from db import get_conn, get_connection, init_db
+from db import decrypt_db_text, get_conn, get_connection, init_db
 
 
 @dataclass(frozen=True)
@@ -157,7 +157,20 @@ def _fetch_recent_transactions(connection_id: int, lookback_days: int) -> list[d
             (connection_id, cutoff),
         ).fetchall()
 
-    return [dict(row) for row in rows]
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        for field in [
+            "description",
+            "merchant_name",
+            "transaction_type",
+            "transaction_category",
+            "transaction_classification",
+            "raw_json",
+        ]:
+            item[field] = decrypt_db_text(item.get(field))
+        result.append(item)
+    return result
 
 
 def _fetch_direct_debits(connection_id: int) -> list[dict[str, Any]]:
@@ -171,7 +184,13 @@ def _fetch_direct_debits(connection_id: int) -> list[dict[str, Any]]:
         """,
             (connection_id,),
         ).fetchall()
-    return [dict(row) for row in rows]
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        for field in ["status", "payee_name", "variable_amount", "next_payment_date"]:
+            item[field] = decrypt_db_text(item.get(field))
+        result.append(item)
+    return result
 
 
 def _fetch_standing_orders(connection_id: int) -> list[dict[str, Any]]:
@@ -185,7 +204,13 @@ def _fetch_standing_orders(connection_id: int) -> list[dict[str, Any]]:
         """,
             (connection_id,),
         ).fetchall()
-    return [dict(row) for row in rows]
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        for field in ["status", "payee_name", "frequency", "next_payment_date"]:
+            item[field] = decrypt_db_text(item.get(field))
+        result.append(item)
+    return result
 
 
 def normalize_transactions(raw_transactions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -222,7 +247,7 @@ def normalize_transactions(raw_transactions: list[dict[str, Any]]) -> list[dict[
                 "severity": label.severity,
                 "source_category": tx.get("transaction_category"),
                 "source_classification": tx.get("transaction_classification"),
-                "raw_json": json.loads(tx["raw_json"]),
+                "raw_json": json.loads(tx["raw_json"] or "{}"),
             }
         )
     return normalized

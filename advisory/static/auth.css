@@ -1,0 +1,92 @@
+:root {
+  --bg: #f3f6f1;
+  --ink: #132a1f;
+  --muted: #5b6f63;
+  --brand: #1f7a4d;
+  --line: #d5e1da;
+  --error: #8a1f1f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  background: radial-gradient(circle at top right, #deefe4 0%, var(--bg) 40%);
+  color: var(--ink);
+}
+
+.shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.card {
+  width: min(460px, 100%);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 20px;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand);
+  font-weight: 700;
+}
+
+h1 {
+  margin: 8px 0 8px;
+  font-size: 30px;
+}
+
+.sub {
+  margin: 0 0 14px;
+  color: var(--muted);
+}
+
+.error {
+  margin: 0 0 12px;
+  color: var(--error);
+  font-weight: 700;
+}
+
+.form {
+  display: grid;
+  gap: 8px;
+}
+
+label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+input {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+}
+
+button {
+  margin-top: 8px;
+  border: none;
+  border-radius: 999px;
+  padding: 11px 16px;
+  background: var(--brand);
+  color: #e8fff2;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.switch {
+  margin: 12px 0 0;
+  color: var(--muted);
+}

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rent Advisory Access</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <section class="card">
+      <p class="eyebrow">Rent Advisory</p>
+      <h1>{% if mode == "register" %}Create Account{% else %}Sign In{% endif %}</h1>
+      <p class="sub">Each account is isolated to its own bank connection and advisory data.</p>
+
+      {% if error %}
+        <p class="error">{{ error }}</p>
+      {% endif %}
+
+      <form method="post" class="form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Email</label>
+        <input name="email" type="email" required autocomplete="email">
+        <label>Password</label>
+        <input name="password" type="password" required autocomplete="{% if mode == 'register' %}new-password{% else %}current-password{% endif %}">
+        <button type="submit">{% if mode == "register" %}Create account{% else %}Sign in{% endif %}</button>
+      </form>
+
+      <p class="switch">
+        {% if mode == "register" %}
+          Already have an account? <a href="/login">Sign in</a>
+        {% else %}
+          {% if allow_self_registration %}
+            Need an account? <a href="/register">Create one</a>
+          {% else %}
+            Account registration is currently disabled.
+          {% endif %}
+        {% endif %}
+      </p>
+    </section>
+  </main>
+</body>
+</html>

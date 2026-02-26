@@ -17,6 +17,11 @@ from db import (
 )
 from engine import run_engine
 
+DISCLAIMER = (
+    "Informational guidance only. Not financial advice. "
+    "Always verify obligations and payment timing yourself."
+)
+
 
 def _is_actionable(decision: dict[str, Any]) -> bool:
     action = decision.get("action")
@@ -77,7 +82,7 @@ def run_notifier() -> None:
 
     timestamp = datetime.now(timezone.utc).isoformat()
     text_lines = [_format_decision_line(decision) for decision in unsent]
-    message = "\n".join(text_lines)
+    message = "\n".join(text_lines) + "\n\n" + DISCLAIMER
     print("New advisories:\n" + message)
 
     sent_channels: list[str] = ["console"]

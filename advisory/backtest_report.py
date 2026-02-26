@@ -8,7 +8,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from db import get_conn, init_db
+from db import decrypt_db_text, get_conn, init_db
 
 
 def _to_date(value: str | None) -> date | None:
@@ -39,9 +39,9 @@ def _fetch_logged_advisories(user_id: str, provider: str, lookback_days: int) ->
 
     advisories: list[dict[str, Any]] = []
     for row in rows:
-        payload = json.loads(row["payload_json"])
+        payload = json.loads(decrypt_db_text(row["payload_json"]) or "{}")
         payload.setdefault("action", row["action"])
-        payload.setdefault("counterparty", row["counterparty"])
+        payload.setdefault("counterparty", decrypt_db_text(row["counterparty"]))
         payload.setdefault("due_date", row["due_date"])
         payload.setdefault("recommended_amount", row["amount"])
         payload.setdefault("created_at", row["created_at"])
@@ -63,7 +63,13 @@ def _fetch_transactions(user_id: str, provider: str, lookback_days: int) -> list
         """,
             (user_id, provider, cutoff),
         ).fetchall()
-    return [dict(row) for row in rows]
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["description"] = decrypt_db_text(item.get("description"))
+        item["merchant_name"] = decrypt_db_text(item.get("merchant_name"))
+        result.append(item)
+    return result
 
 
 def _is_outflow(amount: float) -> bool:

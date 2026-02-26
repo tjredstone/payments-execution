@@ -1,5 +1,6 @@
 .env
 rentbot.db
+rentbot.db.backup.*
 __pycache__/
 *.pyc
 venv/

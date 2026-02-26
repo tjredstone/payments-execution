@@ -3,14 +3,43 @@ import hashlib
 import json
 import secrets
 import sqlite3
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
+from secret_store import read_secret
+from werkzeug.security import check_password_hash, generate_password_hash
 
 DB_PATH = Path(__file__).parent / "rentbot.db"
 ENCRYPTION_KEY_ENV = "TOKENS_ENCRYPTION_KEY"
+FIELD_ENC_PREFIX = "enc::"
+SENSITIVE_TEXT_COLUMNS: dict[str, list[str]] = {
+    "transactions": [
+        "description",
+        "merchant_name",
+        "transaction_type",
+        "transaction_category",
+        "transaction_classification",
+        "raw_json",
+    ],
+    "direct_debits": [
+        "status",
+        "payee_name",
+        "variable_amount",
+        "next_payment_date",
+        "raw_json",
+    ],
+    "standing_orders": [
+        "status",
+        "payee_name",
+        "frequency",
+        "next_payment_date",
+        "raw_json",
+    ],
+    "advisory_log": ["counterparty", "payload_json"],
+}
 
 
 def _utc_now_iso() -> str:
@@ -38,7 +67,7 @@ def _harden_db_file_permissions() -> None:
 
 
 def _get_cipher() -> Fernet:
-    key = os.getenv(ENCRYPTION_KEY_ENV)
+    key = read_secret(ENCRYPTION_KEY_ENV)
     if not key:
         raise RuntimeError(
             f"Missing {ENCRYPTION_KEY_ENV}. Generate one and set it in your environment."
@@ -55,6 +84,30 @@ def ensure_token_crypto_ready() -> None:
 
 def _is_fernet_token(value: str) -> bool:
     return value.startswith("gAAAA")
+
+
+def _is_encrypted_field(value: str) -> bool:
+    return value.startswith(FIELD_ENC_PREFIX)
+
+
+def encrypt_db_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if _is_encrypted_field(value):
+        return value
+    encrypted = _encrypt_token(value)
+    return FIELD_ENC_PREFIX + encrypted
+
+
+def decrypt_db_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if _is_encrypted_field(value):
+        return _decrypt_token(value[len(FIELD_ENC_PREFIX) :])
+    if _is_fernet_token(value):
+        # Backwards compatibility if values were previously stored as raw Fernet tokens.
+        return _decrypt_token(value)
+    return value
 
 
 def _encrypt_token(token: str) -> str:
@@ -88,6 +141,19 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL,
                 consumed_at TEXT,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS auth_users (
+                user_id TEXT PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_login_at TEXT,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         """
@@ -244,6 +310,87 @@ def ensure_user(user_id: str) -> None:
         conn.commit()
 
 
+def _normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def create_auth_user(email: str, password: str) -> str:
+    normalized_email = _normalize_email(email)
+    if "@" not in normalized_email:
+        raise ValueError("Enter a valid email address.")
+    if len(password) < 10:
+        raise ValueError("Password must be at least 10 characters.")
+
+    user_id = str(uuid.uuid4())
+    now = _utc_now_iso()
+    ensure_user(user_id)
+
+    with get_conn() as conn:
+        try:
+            conn.execute(
+                """
+                INSERT INTO auth_users(
+                    user_id, email, password_hash, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+            """,
+                (
+                    user_id,
+                    normalized_email,
+                    generate_password_hash(password),
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("An account with that email already exists.") from exc
+    return user_id
+
+
+def authenticate_auth_user(email: str, password: str) -> dict[str, Any] | None:
+    normalized_email = _normalize_email(email)
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT user_id, email, password_hash
+            FROM auth_users
+            WHERE email = ?
+            LIMIT 1
+        """,
+            (normalized_email,),
+        ).fetchone()
+        if not row:
+            return None
+        if not check_password_hash(row["password_hash"], password):
+            return None
+        now = _utc_now_iso()
+        conn.execute(
+            """
+            UPDATE auth_users
+            SET last_login_at = ?, updated_at = ?
+            WHERE user_id = ?
+        """,
+            (now, now, row["user_id"]),
+        )
+        conn.commit()
+    return {"user_id": row["user_id"], "email": row["email"]}
+
+
+def get_auth_user_by_id(user_id: str) -> dict[str, Any] | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT user_id, email, created_at, updated_at, last_login_at
+            FROM auth_users
+            WHERE user_id = ?
+            LIMIT 1
+        """,
+            (user_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def create_oauth_state(user_id: str, ttl_seconds: int = 900) -> str:
     ensure_user(user_id)
     state = secrets.token_urlsafe(32)
@@ -305,11 +452,56 @@ def purge_old_data(
     *,
     transaction_retention_days: int = 180,
     balance_retention_days: int = 180,
+    direct_debit_retention_days: int = 180,
+    standing_order_retention_days: int = 180,
+    advisory_log_retention_days: int = 365,
+    raw_payload_retention_days: int = 30,
 ) -> dict[str, int]:
-    tx_cutoff = (datetime.now(timezone.utc) - timedelta(days=transaction_retention_days)).isoformat()
-    bal_cutoff = (datetime.now(timezone.utc) - timedelta(days=balance_retention_days)).isoformat()
+    now = datetime.now(timezone.utc)
+    tx_cutoff = (now - timedelta(days=transaction_retention_days)).isoformat()
+    bal_cutoff = (now - timedelta(days=balance_retention_days)).isoformat()
+    dd_cutoff = (now - timedelta(days=direct_debit_retention_days)).isoformat()
+    so_cutoff = (now - timedelta(days=standing_order_retention_days)).isoformat()
+    advisory_cutoff = (now - timedelta(days=advisory_log_retention_days)).isoformat()
+    raw_payload_cutoff = (now - timedelta(days=raw_payload_retention_days)).isoformat()
 
     with get_conn() as conn:
+        tx_payload_cur = conn.execute(
+            """
+            UPDATE transactions
+            SET raw_json = '{}'
+            WHERE updated_at < ?
+              AND raw_json != '{}'
+        """,
+            (raw_payload_cutoff,),
+        )
+        dd_payload_cur = conn.execute(
+            """
+            UPDATE direct_debits
+            SET raw_json = '{}'
+            WHERE updated_at < ?
+              AND raw_json != '{}'
+        """,
+            (raw_payload_cutoff,),
+        )
+        so_payload_cur = conn.execute(
+            """
+            UPDATE standing_orders
+            SET raw_json = '{}'
+            WHERE updated_at < ?
+              AND raw_json != '{}'
+        """,
+            (raw_payload_cutoff,),
+        )
+        advisory_payload_cur = conn.execute(
+            """
+            UPDATE advisory_log
+            SET payload_json = '{}'
+            WHERE created_at < ?
+              AND payload_json != '{}'
+        """,
+            (raw_payload_cutoff,),
+        )
         tx_cur = conn.execute(
             """
             DELETE FROM transactions
@@ -324,11 +516,39 @@ def purge_old_data(
         """,
             (bal_cutoff,),
         )
+        dd_cur = conn.execute(
+            """
+            DELETE FROM direct_debits
+            WHERE updated_at < ?
+        """,
+            (dd_cutoff,),
+        )
+        so_cur = conn.execute(
+            """
+            DELETE FROM standing_orders
+            WHERE updated_at < ?
+        """,
+            (so_cutoff,),
+        )
+        advisory_cur = conn.execute(
+            """
+            DELETE FROM advisory_log
+            WHERE created_at < ?
+        """,
+            (advisory_cutoff,),
+        )
         conn.commit()
 
     return {
         "transactions_deleted": tx_cur.rowcount,
         "balance_snapshots_deleted": bal_cur.rowcount,
+        "direct_debits_deleted": dd_cur.rowcount,
+        "standing_orders_deleted": so_cur.rowcount,
+        "advisory_log_deleted": advisory_cur.rowcount,
+        "transactions_payload_scrubbed": tx_payload_cur.rowcount,
+        "direct_debits_payload_scrubbed": dd_payload_cur.rowcount,
+        "standing_orders_payload_scrubbed": so_payload_cur.rowcount,
+        "advisory_payload_scrubbed": advisory_payload_cur.rowcount,
     }
 
 
@@ -380,10 +600,10 @@ def log_advisory_sent(
                 provider,
                 fingerprint,
                 str(decision.get("action", "")),
-                str(decision.get("counterparty", "")),
+                encrypt_db_text(str(decision.get("counterparty", ""))),
                 str(decision.get("due_date", "")),
                 float(decision.get("recommended_amount", 0)),
-                json.dumps(decision, ensure_ascii=True, sort_keys=True),
+                encrypt_db_text(json.dumps(decision, ensure_ascii=True, sort_keys=True)),
                 sent_via,
                 _utc_now_iso(),
             ),
@@ -462,6 +682,39 @@ def get_connection(user_id: str, provider: str) -> dict[str, Any] | None:
     return data
 
 
+def list_connections(provider: str) -> list[dict[str, Any]]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM bank_connections
+            WHERE provider = ?
+        """,
+            (provider,),
+        ).fetchall()
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        data = dict(row)
+        data["access_token"] = _decrypt_token(data["access_token"])
+        data["refresh_token"] = _decrypt_token(data["refresh_token"])
+        result.append(data)
+    return result
+
+
+def has_connection(user_id: str, provider: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM bank_connections
+            WHERE user_id = ? AND provider = ?
+            LIMIT 1
+        """,
+            (user_id, provider),
+        ).fetchone()
+    return row is not None
+
+
 def migrate_plaintext_tokens() -> int:
     ensure_token_crypto_ready()
     with get_conn() as conn:
@@ -496,6 +749,122 @@ def migrate_plaintext_tokens() -> int:
 
         conn.commit()
         return migrated
+
+
+def migrate_plaintext_sensitive_fields() -> int:
+    ensure_token_crypto_ready()
+    migration_plan = [(table, "id", columns) for table, columns in SENSITIVE_TEXT_COLUMNS.items()]
+
+    migrated = 0
+    with get_conn() as conn:
+        for table, pk, columns in migration_plan:
+            select_cols = ", ".join([pk] + columns)
+            rows = conn.execute(f"SELECT {select_cols} FROM {table}").fetchall()
+            for row in rows:
+                updates: dict[str, str] = {}
+                for column in columns:
+                    value = row[column]
+                    if not isinstance(value, str):
+                        continue
+                    if _is_encrypted_field(value):
+                        continue
+                    updates[column] = encrypt_db_text(value)
+                if not updates:
+                    continue
+                set_clause = ", ".join([f"{col} = ?" for col in updates])
+                params = list(updates.values()) + [row[pk]]
+                conn.execute(
+                    f"UPDATE {table} SET {set_clause} WHERE {pk} = ?",
+                    params,
+                )
+                migrated += 1
+        conn.commit()
+    return migrated
+
+
+def rotate_encryption_key(old_key: str, new_key: str) -> dict[str, int]:
+    old_cipher = Fernet(old_key.encode("utf-8"))
+    new_cipher = Fernet(new_key.encode("utf-8"))
+
+    counts: dict[str, int] = {
+        "bank_connections_rotated": 0,
+        "sensitive_fields_rotated": 0,
+    }
+
+    def _decrypt_old_fernet(value: str) -> str:
+        try:
+            return old_cipher.decrypt(value.encode("utf-8")).decode("utf-8")
+        except InvalidToken as exc:
+            raise RuntimeError("Old encryption key cannot decrypt existing DB data.") from exc
+
+    with get_conn() as conn:
+        conn.execute("BEGIN")
+        try:
+            token_rows = conn.execute(
+                """
+                SELECT id, access_token, refresh_token
+                FROM bank_connections
+            """
+            ).fetchall()
+            for row in token_rows:
+                updates: dict[str, str] = {}
+                for col in ("access_token", "refresh_token"):
+                    value = row[col]
+                    if not isinstance(value, str):
+                        continue
+                    if _is_fernet_token(value):
+                        plaintext = _decrypt_old_fernet(value)
+                    else:
+                        plaintext = value
+                    updates[col] = new_cipher.encrypt(plaintext.encode("utf-8")).decode("utf-8")
+                if updates:
+                    conn.execute(
+                        """
+                        UPDATE bank_connections
+                        SET access_token = ?, refresh_token = ?, updated_at = ?
+                        WHERE id = ?
+                    """,
+                        (
+                            updates.get("access_token", row["access_token"]),
+                            updates.get("refresh_token", row["refresh_token"]),
+                            _utc_now_iso(),
+                            row["id"],
+                        ),
+                    )
+                    counts["bank_connections_rotated"] += 1
+
+            for table, columns in SENSITIVE_TEXT_COLUMNS.items():
+                select_cols = ", ".join(["id"] + columns)
+                rows = conn.execute(f"SELECT {select_cols} FROM {table}").fetchall()
+                for row in rows:
+                    updates: dict[str, str] = {}
+                    for column in columns:
+                        value = row[column]
+                        if not isinstance(value, str):
+                            continue
+                        if _is_encrypted_field(value):
+                            plaintext = _decrypt_old_fernet(value[len(FIELD_ENC_PREFIX) :])
+                        else:
+                            plaintext = value
+                        rotated = FIELD_ENC_PREFIX + new_cipher.encrypt(
+                            plaintext.encode("utf-8")
+                        ).decode("utf-8")
+                        if rotated != value:
+                            updates[column] = rotated
+                    if updates:
+                        set_clause = ", ".join([f"{col} = ?" for col in updates])
+                        params = list(updates.values()) + [row["id"]]
+                        conn.execute(
+                            f"UPDATE {table} SET {set_clause} WHERE id = ?",
+                            params,
+                        )
+                        counts["sensitive_fields_rotated"] += 1
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    return counts
 
 
 def upsert_bank_account(
@@ -603,14 +972,14 @@ def upsert_transaction(
                 tx["transaction_id"],
                 tx.get("amount"),
                 tx.get("currency", "GBP"),
-                _as_db_text(tx.get("description")),
-                _as_db_text(tx.get("merchant_name")),
-                _as_db_text(tx.get("transaction_type")),
-                _as_db_text(tx.get("transaction_category")),
-                _as_db_text(tx.get("transaction_classification")),
+                encrypt_db_text(_as_db_text(tx.get("description"))),
+                encrypt_db_text(_as_db_text(tx.get("merchant_name"))),
+                encrypt_db_text(_as_db_text(tx.get("transaction_type"))),
+                encrypt_db_text(_as_db_text(tx.get("transaction_category"))),
+                encrypt_db_text(_as_db_text(tx.get("transaction_classification"))),
                 _as_db_text(tx.get("timestamp")),
                 (tx.get("running_balance") or {}).get("amount"),
-                raw_json,
+                encrypt_db_text(raw_json),
                 now,
                 now,
             ),
@@ -675,23 +1044,31 @@ def upsert_direct_debit(
                 connection_id,
                 provider_account_id,
                 str(direct_debit_id),
-                str(direct_debit.get("status") or ""),
-                str(
-                    direct_debit.get("payee_name")
-                    or direct_debit.get("merchant_name")
-                    or direct_debit.get("name")
-                    or ""
+                encrypt_db_text(str(direct_debit.get("status") or "")),
+                encrypt_db_text(
+                    str(
+                        direct_debit.get("payee_name")
+                        or direct_debit.get("merchant_name")
+                        or direct_debit.get("name")
+                        or ""
+                    )
                 ),
-                str(direct_debit.get("variable_amount")) if direct_debit.get("variable_amount") is not None else None,
-                str(
-                    direct_debit.get("next_payment_date")
-                    or direct_debit.get("payment_date")
-                    or direct_debit.get("timestamp")
-                    or ""
+                encrypt_db_text(
+                    str(direct_debit.get("variable_amount"))
+                    if direct_debit.get("variable_amount") is not None
+                    else None
+                ),
+                encrypt_db_text(
+                    str(
+                        direct_debit.get("next_payment_date")
+                        or direct_debit.get("payment_date")
+                        or direct_debit.get("timestamp")
+                        or ""
+                    )
                 ),
                 latest_amount,
                 latest_currency,
-                raw_json,
+                encrypt_db_text(raw_json),
                 now,
                 now,
             ),
@@ -759,27 +1136,37 @@ def upsert_standing_order(
                 connection_id,
                 provider_account_id,
                 str(standing_order_id),
-                str(standing_order.get("status") or ""),
-                str(
-                    standing_order.get("payee_name")
-                    or standing_order.get("beneficiary_name")
-                    or standing_order.get("name")
-                    or ""
+                encrypt_db_text(str(standing_order.get("status") or "")),
+                encrypt_db_text(
+                    str(
+                        standing_order.get("payee_name")
+                        or standing_order.get("beneficiary_name")
+                        or standing_order.get("name")
+                        or ""
+                    )
                 ),
-                str(
-                    standing_order.get("frequency")
-                    or ((standing_order.get("schedule") or {}).get("frequency") if isinstance(standing_order.get("schedule"), dict) else "")
-                    or ""
+                encrypt_db_text(
+                    str(
+                        standing_order.get("frequency")
+                        or (
+                            (standing_order.get("schedule") or {}).get("frequency")
+                            if isinstance(standing_order.get("schedule"), dict)
+                            else ""
+                        )
+                        or ""
+                    )
                 ),
-                str(
-                    standing_order.get("next_payment_date")
-                    or standing_order.get("payment_date")
-                    or standing_order.get("timestamp")
-                    or ""
+                encrypt_db_text(
+                    str(
+                        standing_order.get("next_payment_date")
+                        or standing_order.get("payment_date")
+                        or standing_order.get("timestamp")
+                        or ""
+                    )
                 ),
                 next_amount,
                 next_currency,
-                raw_json,
+                encrypt_db_text(raw_json),
                 now,
                 now,
             ),
