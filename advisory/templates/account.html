@@ -16,6 +16,7 @@
       </div>
       <div class="actions">
         <p class="user-pill">{{ user_email }}</p>
+        <a class="btn secondary" href="/security">Security</a>
         <a class="btn secondary" href="/">Back to Dashboard</a>
         <form action="/logout" method="post" class="inline-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -38,6 +39,85 @@
 
     <section class="panel">
       <div class="panel-head">
+        <h2>Advisory Preferences</h2>
+      </div>
+      <p class="subtle">
+        Tune how the engine balances risk, timing, and liquidity for your account.
+      </p>
+      {% if prefs_status == "saved" %}
+        <p class="ok">Preferences saved.</p>
+      {% endif %}
+      {% if prefs_warning %}
+        <p class="warn">{{ prefs_warning }}</p>
+      {% elif preferences.reserve_floor is not none and preferences.reserve_floor < 100 %}
+        <p class="warn">Low reserve floor currently active. A very small buffer can increase overdraft or failed-payment risk if timings shift.</p>
+      {% endif %}
+      {% if prefs_error %}
+        <p class="warn">{{ prefs_error }}</p>
+      {% endif %}
+      <form action="/account/preferences" method="post" class="prefs-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="prefs-field">
+          <label for="reserve_floor">Reserve floor (optional)</label>
+          <p class="field-help">Sets your preferred minimum balance to keep in your account.</p>
+          <input
+            id="reserve_floor"
+            name="reserve_floor"
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="Auto-calculate if blank"
+            value="{% if preferences.reserve_floor is not none %}{{ preferences.reserve_floor }}{% endif %}"
+          >
+        </div>
+
+        <div class="prefs-field">
+          <label for="payment_style">Payment timing philosophy</label>
+          <p class="field-help">Controls when non-urgent payments are scheduled.</p>
+          <select id="payment_style" name="payment_style" required>
+            {% for value, label in payment_style_choices %}
+              <option value="{{ value }}" {% if preferences.payment_style == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="prefs-field">
+          <label for="card_strategy">Credit card strategy</label>
+          <p class="field-help">Sets how card repayments are handled when salary or due dates approach.</p>
+          <select id="card_strategy" name="card_strategy" required>
+            {% for value, label in card_strategy_choices %}
+              <option value="{{ value }}" {% if preferences.card_strategy == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="prefs-field">
+          <label for="buffer_preference">Current account buffer philosophy</label>
+          <p class="field-help">Adjusts how much cash cushion the engine tries to keep.</p>
+          <select id="buffer_preference" name="buffer_preference" required>
+            {% for value, label in buffer_preference_choices %}
+              <option value="{{ value }}" {% if preferences.buffer_preference == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="prefs-field">
+          <label for="risk_tolerance">Risk sensitivity</label>
+          <p class="field-help">Adjusts how early alerts are triggered.</p>
+          <select id="risk_tolerance" name="risk_tolerance" required>
+            {% for value, label in risk_tolerance_choices %}
+              <option value="{{ value }}" {% if preferences.risk_tolerance == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <button class="btn primary" type="submit">Save preferences</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
         <h2>Data Controls</h2>
       </div>
       <p class="subtle">
@@ -56,7 +136,7 @@
 
     <footer class="footnote">
       <span class="policy-links">
-        <a href="/privacy">Privacy Policy</a> · <a href="/cookies">Cookie Policy</a>
+        <a href="/security">Security</a> · <a href="/privacy">Privacy Policy</a> · <a href="/cookies">Cookie Policy</a>
       </span>
     </footer>
   </main>

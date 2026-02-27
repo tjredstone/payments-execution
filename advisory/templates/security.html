@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Security</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='policy.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">Rent Advisory</p>
+      <h1>Security</h1>
+      <p class="sub">How your data is protected.</p>
+      <p class="meta">Last updated: 27 February 2026</p>
+    </header>
+
+    <section class="panel">
+      <h2>How Bank Connections Work</h2>
+      <p>Bank connections are established using Open Banking via TrueLayer, an FCA-regulated provider in the United Kingdom.</p>
+      <p>When you connect your bank account, you are redirected to your bank's secure authentication page. This application does not collect or store your online banking credentials.</p>
+      <p>Access is granted only with your explicit consent.</p>
+      <p>The connection is read-only and limited to retrieving account balances, transactions, direct debits, and standing orders required for advisory analysis. The application cannot initiate payments or move funds.</p>
+      <p>Open Banking access is granted for a limited period and must be re-authorised periodically in line with regulatory requirements. You can revoke access at any time through your bank or Open Banking provider.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Account Protection</h2>
+      <p>Access to your data requires sign-in. Each user account is isolated using a unique user ID, ensuring one user cannot view or access another user's data.</p>
+      <p>Sign-in is protected with CSRF safeguards and login rate limits to reduce automated abuse.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Bank Tokens &amp; Application Secrets</h2>
+      <p>Bank access tokens are encrypted before being stored in the database.</p>
+      <p>Application secrets (including encryption keys and API credentials) are not hardcoded in the application. They are stored securely using environment-based secrets and/or secure system key storage.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Data in Transit</h2>
+      <p>Database connections are configured to use TLS (SSL) encryption.</p>
+      <p>In hosted environments, HTTPS and secure cookies are enforced when enabled in deployment configuration.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Data at Rest</h2>
+      <p>Data stored in the database is encrypted at rest by the database provider. Sensitive fields, including bank access tokens, are encrypted before storage at the application layer.</p>
+      <p>Only the minimum data required for advisory functionality is retained.</p>
+      <p>Older raw payload fields are scrubbed automatically, and records are deleted according to defined retention policies to reduce unnecessary data storage.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Logging &amp; Exposure Controls</h2>
+      <p>Application logs apply automatic redaction filters to sensitive values such as access tokens, refresh tokens, authentication codes, and client secrets.</p>
+      <p>This reduces the risk of accidental exposure through logging systems.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Your Data Rights</h2>
+      <p>You can request access to your stored data and request deletion of your account data.</p>
+      <p>For UK users, this supports core UK GDPR rights, including access and erasure.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Important Limits</h2>
+      <p>No online system can be completely risk-free.</p>
+      <p>We follow least-privilege access principles and fail-closed design wherever possible and continuously improve safeguards as the system evolves.</p>
+      <p>This service provides informational guidance only and does not constitute financial advice.</p>
+    </section>
+
+    <footer class="foot">
+      <a href="/privacy">Privacy Policy</a>
+      <a href="/cookies">Cookie Policy</a>
+      <a href="/">Back to app</a>
+    </footer>
+  </main>
+</body>
+</html>

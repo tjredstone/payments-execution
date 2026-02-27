@@ -41,6 +41,25 @@ SENSITIVE_TEXT_COLUMNS: dict[str, list[str]] = {
     ],
     "advisory_log": ["counterparty", "payload_json"],
 }
+PAYMENT_STYLE_OPTIONS = {"conservative", "balanced", "last_safe_moment"}
+CARD_STRATEGY_OPTIONS = {
+    "pay_immediately_on_salary",
+    "wait_for_direct_debit",
+    "manual_review",
+}
+BUFFER_PREFERENCE_OPTIONS = {"minimise_idle_cash", "moderate_buffer", "high_buffer"}
+RISK_TOLERANCE_OPTIONS = {"low", "medium", "high"}
+
+
+def default_user_preferences() -> dict[str, Any]:
+    return {
+        "profile_version": 1,
+        "reserve_floor": None,
+        "payment_style": "balanced",
+        "card_strategy": "wait_for_direct_debit",
+        "buffer_preference": "moderate_buffer",
+        "risk_tolerance": "medium",
+    }
 
 
 def _utc_now_iso() -> str:
@@ -193,6 +212,20 @@ def init_db() -> None:
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS user_preferences (
+            user_id TEXT PRIMARY KEY,
+            profile_version INTEGER NOT NULL DEFAULT 1,
+            reserve_floor REAL,
+            payment_style TEXT NOT NULL DEFAULT 'balanced',
+            card_strategy TEXT NOT NULL DEFAULT 'wait_for_direct_debit',
+            buffer_preference TEXT NOT NULL DEFAULT 'moderate_buffer',
+            risk_tolerance TEXT NOT NULL DEFAULT 'medium',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS bank_connections (
             id BIGSERIAL PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -322,6 +355,30 @@ def init_db() -> None:
             FOREIGN KEY (connection_id) REFERENCES bank_connections(id) ON DELETE CASCADE
         )
         """,
+        """
+        ALTER TABLE user_preferences
+        ADD COLUMN IF NOT EXISTS profile_version INTEGER NOT NULL DEFAULT 1
+        """,
+        """
+        ALTER TABLE user_preferences
+        ADD COLUMN IF NOT EXISTS reserve_floor REAL
+        """,
+        """
+        ALTER TABLE user_preferences
+        ADD COLUMN IF NOT EXISTS payment_style TEXT NOT NULL DEFAULT 'balanced'
+        """,
+        """
+        ALTER TABLE user_preferences
+        ADD COLUMN IF NOT EXISTS card_strategy TEXT NOT NULL DEFAULT 'wait_for_direct_debit'
+        """,
+        """
+        ALTER TABLE user_preferences
+        ADD COLUMN IF NOT EXISTS buffer_preference TEXT NOT NULL DEFAULT 'moderate_buffer'
+        """,
+        """
+        ALTER TABLE user_preferences
+        ADD COLUMN IF NOT EXISTS risk_tolerance TEXT NOT NULL DEFAULT 'medium'
+        """,
     ]
 
     with get_conn() as conn:
@@ -424,6 +481,100 @@ def get_auth_user_by_id(user_id: str) -> dict[str, Any] | None:
             (user_id,),
         ).fetchone()
     return dict(row) if row else None
+
+
+def _validate_user_preferences(input_prefs: dict[str, Any]) -> dict[str, Any]:
+    defaults = default_user_preferences()
+    output = dict(defaults)
+
+    reserve_floor_raw = input_prefs.get("reserve_floor")
+    if reserve_floor_raw in (None, "", "null"):
+        output["reserve_floor"] = None
+    else:
+        try:
+            reserve_floor = float(reserve_floor_raw)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("Reserve floor must be a number.") from exc
+        if reserve_floor < 0:
+            raise ValueError("Reserve floor cannot be negative.")
+        output["reserve_floor"] = round(reserve_floor, 2)
+
+    payment_style = str(input_prefs.get("payment_style") or defaults["payment_style"]).strip()
+    if payment_style not in PAYMENT_STYLE_OPTIONS:
+        raise ValueError("Invalid payment style.")
+    output["payment_style"] = payment_style
+
+    card_strategy = str(input_prefs.get("card_strategy") or defaults["card_strategy"]).strip()
+    if card_strategy not in CARD_STRATEGY_OPTIONS:
+        raise ValueError("Invalid card strategy.")
+    output["card_strategy"] = card_strategy
+
+    buffer_preference = str(input_prefs.get("buffer_preference") or defaults["buffer_preference"]).strip()
+    if buffer_preference not in BUFFER_PREFERENCE_OPTIONS:
+        raise ValueError("Invalid buffer preference.")
+    output["buffer_preference"] = buffer_preference
+
+    risk_tolerance = str(input_prefs.get("risk_tolerance") or defaults["risk_tolerance"]).strip()
+    if risk_tolerance not in RISK_TOLERANCE_OPTIONS:
+        raise ValueError("Invalid risk tolerance.")
+    output["risk_tolerance"] = risk_tolerance
+    return output
+
+
+def get_user_preferences(user_id: str) -> dict[str, Any]:
+    defaults = default_user_preferences()
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT profile_version, reserve_floor, payment_style, card_strategy, buffer_preference, risk_tolerance
+            FROM user_preferences
+            WHERE user_id = ?
+            LIMIT 1
+        """,
+            (user_id,),
+        ).fetchone()
+    if not row:
+        return defaults
+    merged = dict(defaults)
+    merged.update(dict(row))
+    return _validate_user_preferences(merged)
+
+
+def save_user_preferences(user_id: str, prefs: dict[str, Any]) -> dict[str, Any]:
+    ensure_user(user_id)
+    clean = _validate_user_preferences(prefs)
+    now = _utc_now_iso()
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO user_preferences(
+                user_id, profile_version, reserve_floor, payment_style, card_strategy,
+                buffer_preference, risk_tolerance, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                profile_version = excluded.profile_version,
+                reserve_floor = excluded.reserve_floor,
+                payment_style = excluded.payment_style,
+                card_strategy = excluded.card_strategy,
+                buffer_preference = excluded.buffer_preference,
+                risk_tolerance = excluded.risk_tolerance,
+                updated_at = excluded.updated_at
+        """,
+            (
+                user_id,
+                clean["profile_version"],
+                clean["reserve_floor"],
+                clean["payment_style"],
+                clean["card_strategy"],
+                clean["buffer_preference"],
+                clean["risk_tolerance"],
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+    return clean
 
 
 def resolve_effective_user_id(env_user_id: str | None = None) -> str:
@@ -560,6 +711,15 @@ def export_user_data(user_id: str) -> dict[str, Any]:
                 (user_id,),
             ).fetchall()
         ]
+        preferences_row = conn.execute(
+            """
+            SELECT profile_version, reserve_floor, payment_style, card_strategy, buffer_preference, risk_tolerance
+            FROM user_preferences
+            WHERE user_id = ?
+            LIMIT 1
+        """,
+            (user_id,),
+        ).fetchone()
 
     # Decrypt encrypted text fields for export readability.
     for row in transactions:
@@ -585,6 +745,7 @@ def export_user_data(user_id: str) -> dict[str, Any]:
     return {
         "exported_at": _utc_now_iso(),
         "user_profile": dict(profile) if profile else None,
+        "user_preferences": _validate_user_preferences(dict(preferences_row)) if preferences_row else default_user_preferences(),
         "bank_connections": [dict(row) for row in connections],
         "bank_accounts": accounts,
         "balance_snapshots": balances,
@@ -600,6 +761,13 @@ def delete_user_data(user_id: str) -> dict[str, int]:
     with get_conn() as conn:
         conn.execute("BEGIN")
         try:
+            prefs_cur = conn.execute(
+                """
+                DELETE FROM user_preferences
+                WHERE user_id = ?
+            """,
+                (user_id,),
+            )
             advisory_cur = conn.execute(
                 """
                 DELETE FROM advisory_log
@@ -627,6 +795,7 @@ def delete_user_data(user_id: str) -> dict[str, int]:
             raise
     return {
         "users_deleted": user_cur.rowcount,
+        "user_preferences_deleted": prefs_cur.rowcount,
         "advisory_rows_deleted": advisory_cur.rowcount,
         "privacy_events_deleted": privacy_cur.rowcount,
     }

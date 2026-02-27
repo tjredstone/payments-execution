@@ -23,11 +23,13 @@ from db import (
     export_user_data,
     ensure_token_crypto_ready,
     get_auth_user_by_id,
+    get_user_preferences,
     has_connection,
     init_db,
     log_privacy_event,
     migrate_plaintext_tokens,
     purge_expired_oauth_states,
+    save_user_preferences,
     save_connection_tokens,
 )
 from engine import run_engine
@@ -137,6 +139,26 @@ OPTIONAL_COOKIE_NAMES = ("analytics_id", "ui_locale")
 LOGIN_MAX_ATTEMPTS = max(1, int(os.getenv("LOGIN_MAX_ATTEMPTS", "5")))
 LOGIN_WINDOW_SECONDS = max(60, int(os.getenv("LOGIN_WINDOW_SECONDS", "600")))
 LOGIN_LOCKOUT_SECONDS = max(60, int(os.getenv("LOGIN_LOCKOUT_SECONDS", "900")))
+PAYMENT_STYLE_CHOICES = [
+    ("conservative", "Conservative (pay earlier)"),
+    ("balanced", "Balanced"),
+    ("last_safe_moment", "Last safe moment"),
+]
+CARD_STRATEGY_CHOICES = [
+    ("pay_immediately_on_salary", "Pay immediately on salary"),
+    ("wait_for_direct_debit", "Wait for direct debit"),
+    ("manual_review", "Manual review"),
+]
+BUFFER_PREFERENCE_CHOICES = [
+    ("minimise_idle_cash", "Minimise idle cash"),
+    ("moderate_buffer", "Moderate buffer"),
+    ("high_buffer", "High buffer"),
+]
+RISK_TOLERANCE_CHOICES = [
+    ("low", "Low risk tolerance"),
+    ("medium", "Medium risk tolerance"),
+    ("high", "High risk tolerance"),
+]
 
 
 def _currency_symbol(currency: str | None) -> str:
@@ -459,6 +481,11 @@ def cookie_policy():
     return render_template("cookies.html")
 
 
+@app.get("/security")
+def security_page():
+    return render_template("security.html")
+
+
 @app.get("/")
 @_login_required
 def home():
@@ -484,11 +511,58 @@ def account_page():
         return redirect(url_for("login"))
     provider = "truelayer"
     connected = has_connection(user_id=user["user_id"], provider=provider)
+    preferences = get_user_preferences(user["user_id"])
     return render_template(
         "account.html",
         user_email=user["email"],
         connected=connected,
+        preferences=preferences,
+        payment_style_choices=PAYMENT_STYLE_CHOICES,
+        card_strategy_choices=CARD_STRATEGY_CHOICES,
+        buffer_preference_choices=BUFFER_PREFERENCE_CHOICES,
+        risk_tolerance_choices=RISK_TOLERANCE_CHOICES,
+        prefs_status=request.args.get("prefs_status", ""),
+        prefs_error=request.args.get("prefs_error", ""),
+        prefs_warning=request.args.get("prefs_warning", ""),
     )
+
+
+@app.post("/account/preferences")
+@_login_required
+def save_account_preferences():
+    user = _current_user()
+    if not user:
+        return redirect(url_for("login"))
+    reserve_floor_raw = (request.form.get("reserve_floor") or "").strip()
+    prefs_input = {
+        "reserve_floor": reserve_floor_raw if reserve_floor_raw else None,
+        "payment_style": request.form.get("payment_style"),
+        "card_strategy": request.form.get("card_strategy"),
+        "buffer_preference": request.form.get("buffer_preference"),
+        "risk_tolerance": request.form.get("risk_tolerance"),
+    }
+    try:
+        saved = save_user_preferences(user["user_id"], prefs_input)
+        log_privacy_event(
+            user["user_id"],
+            "preferences_updated",
+            f"Updated profile preferences: {json.dumps(saved, ensure_ascii=True, sort_keys=True)}",
+        )
+        _DASHBOARD_CACHE["key"] = None
+        _DASHBOARD_CACHE["expires_at"] = 0.0
+        _DASHBOARD_CACHE["payload"] = None
+        warning = ""
+        reserve_floor = saved.get("reserve_floor")
+        if reserve_floor is not None and float(reserve_floor) < 100:
+            warning = (
+                "Low reserve floor set. A very small buffer can increase overdraft "
+                "or failed-payment risk if timings shift."
+            )
+        return redirect(
+            url_for("account_page", prefs_status="saved", prefs_warning=warning)
+        )
+    except ValueError as exc:
+        return redirect(url_for("account_page", prefs_error=str(exc)))
 
 
 def _dashboard_cached(user_id: str, provider: str) -> dict:

@@ -17,6 +17,7 @@
       <div class="actions">
         <p class="user-pill">{{ user_email }}</p>
         <a class="btn primary" href="/connect">Connect via TrueLayer</a>
+        <a class="btn secondary" href="/security">Security</a>
         <a class="btn secondary" href="/account">Account</a>
         <form action="/logout" method="post" class="inline-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -75,6 +76,23 @@
 
         <section class="panel">
           <div class="panel-head">
+            <h2>Current Profile</h2>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Setting</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody id="profile-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
             <h2>Current Decisions</h2>
           </div>
           <div class="table-wrap">
@@ -100,7 +118,7 @@
     <footer class="footnote">
       Informational guidance only. Not financial advice. Always verify obligations and payment timing yourself.
       <span class="policy-links">
-        <a href="/privacy">Privacy Policy</a> · <a href="/cookies">Cookie Policy</a>
+        <a href="/security">Security</a> · <a href="/privacy">Privacy Policy</a> · <a href="/cookies">Cookie Policy</a>
       </span>
     </footer>
   </main>
@@ -207,6 +225,7 @@
             const summary = d.summary || {};
             const flags = d.risk_flags || [];
             const decisions = d.decisions || [];
+            const prefs = d.preferences_applied || {};
 
             document.getElementById("metric-available").textContent = money(summary.available_total, "GBP");
             document.getElementById("metric-allocatable").textContent = money(summary.allocatable_cash_remaining, "GBP");
@@ -230,6 +249,41 @@
                 flagsEl.appendChild(li);
               });
             }
+
+            const profileBody = document.getElementById("profile-body");
+            const reserveFloorText = prefs.reserve_floor == null
+              ? "Auto"
+              : money(prefs.reserve_floor, "GBP");
+            const paymentStyleLabel = ({
+              conservative: "Conservative (pay earlier)",
+              balanced: "Balanced",
+              last_safe_moment: "Last safe moment",
+            })[prefs.payment_style] || (prefs.payment_style || "-");
+            const riskToleranceLabel = ({
+              low: "Low (earlier alerts)",
+              medium: "Medium",
+              high: "High (later alerts)",
+            })[prefs.risk_tolerance] || (prefs.risk_tolerance || "-");
+            const bufferPreferenceLabel = ({
+              minimise_idle_cash: "Minimise idle cash",
+              moderate_buffer: "Moderate buffer",
+              high_buffer: "High buffer",
+            })[prefs.buffer_preference] || (prefs.buffer_preference || "-");
+            const cardStrategyLabel = ({
+              pay_immediately_on_salary: "Pay immediately on salary",
+              wait_for_direct_debit: "Wait for direct debit",
+              manual_review: "Manual review",
+            })[prefs.card_strategy] || (prefs.card_strategy || "-");
+            const profileRows = [
+              ["Payment timing", paymentStyleLabel],
+              ["Risk sensitivity", riskToleranceLabel],
+              ["Buffer preference", bufferPreferenceLabel],
+              ["Reserve floor", reserveFloorText],
+              ["Card strategy", cardStrategyLabel],
+            ];
+            profileBody.innerHTML = profileRows
+              .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`)
+              .join("");
 
             const decisionsBody = document.getElementById("decisions-body");
             const decisionsEmptyEl = document.getElementById("decisions-empty");

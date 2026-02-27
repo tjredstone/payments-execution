@@ -9,7 +9,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from bank_normalise import build_normalized_payload
-from db import init_db, list_connections, resolve_effective_user_id
+from db import default_user_preferences, get_user_preferences, init_db, list_connections, resolve_effective_user_id
 
 
 def _easter_sunday(year: int) -> date:
@@ -104,6 +104,13 @@ def _previous_uk_business_day(d: date) -> date:
     return candidate
 
 
+def _next_uk_business_day(d: date) -> date:
+    candidate = d
+    while not _is_uk_business_day(candidate):
+        candidate += timedelta(days=1)
+    return candidate
+
+
 def _annualized_income(income_schedule: list[dict[str, Any]]) -> float:
     per_month = 0.0
     for income in income_schedule:
@@ -141,6 +148,7 @@ def _build_rationale(
     execution_date: str,
     cash_after: float,
     reserve_floor: float,
+    user_preferences: dict[str, Any],
 ) -> list[str]:
     due_in = int(obligation["due_in_days"])
     severity = obligation["severity"]
@@ -160,14 +168,91 @@ def _build_rationale(
         reasons.append("Insufficient liquid cash to cover full amount.")
     else:
         reasons.append("Payment held to avoid destabilizing critical obligations.")
+    reasons.append(
+        f"Profile: payment_style={user_preferences['payment_style']}, "
+        f"risk_tolerance={user_preferences['risk_tolerance']}, "
+        f"buffer_preference={user_preferences['buffer_preference']}"
+    )
+    if user_preferences.get("card_strategy"):
+        reasons.append(f"Card strategy={user_preferences['card_strategy']}.")
     reasons.append(f"Projected cash after action={cash_after:.2f} (reserve floor={reserve_floor:.2f})")
     return reasons
+
+
+def _reserve_floor(
+    monthly_income_estimate: float,
+    user_preferences: dict[str, Any],
+) -> float:
+    base_floor = max(200.0, round(monthly_income_estimate * 0.10, 2))
+    override = user_preferences.get("reserve_floor")
+    if override is not None:
+        return max(0.0, round(float(override), 2))
+    multiplier = {
+        "minimise_idle_cash": 0.85,
+        "moderate_buffer": 1.0,
+        "high_buffer": 1.35,
+    }.get(str(user_preferences.get("buffer_preference", "moderate_buffer")), 1.0)
+    return max(200.0, round(base_floor * multiplier, 2))
+
+
+def _urgency_rule(due_in_days: int, severity_val: int, risk_tolerance: str) -> bool:
+    if risk_tolerance == "low":
+        return due_in_days <= 2 or (severity_val >= 3 and due_in_days <= 4)
+    if risk_tolerance == "high":
+        return due_in_days <= 0 or (severity_val >= 3 and due_in_days <= 2)
+    return due_in_days <= 1 or (severity_val >= 3 and due_in_days <= 3)
+
+
+def _latest_safe_execution_date(due_date: date, business_calendar: str) -> date:
+    latest = due_date - timedelta(days=1)
+    if business_calendar == "uk":
+        latest = _previous_uk_business_day(latest)
+    return latest
+
+
+def _choose_wait_date(
+    *,
+    today: date,
+    due_date: date,
+    business_calendar: str,
+    payment_style: str,
+) -> date:
+    latest_safe = _latest_safe_execution_date(due_date, business_calendar)
+    if latest_safe <= today:
+        return today
+
+    earliest_safe = today
+    if business_calendar == "uk":
+        earliest_safe = _next_uk_business_day(earliest_safe)
+        if earliest_safe > latest_safe:
+            return latest_safe
+
+    if payment_style == "conservative":
+        candidate = earliest_safe
+    elif payment_style == "last_safe_moment":
+        candidate = latest_safe
+    else:
+        span_days = (latest_safe - earliest_safe).days
+        midpoint = earliest_safe + timedelta(days=max(0, span_days // 2))
+        candidate = midpoint
+
+    if business_calendar == "uk":
+        if candidate > latest_safe:
+            candidate = latest_safe
+        candidate = _previous_uk_business_day(candidate)
+        if candidate < earliest_safe:
+            candidate = earliest_safe
+    return candidate
 
 
 def generate_advisories(
     normalized_payload: dict[str, Any],
     days_ahead: int = 14,
+    user_preferences: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    prefs = default_user_preferences()
+    if user_preferences:
+        prefs.update(user_preferences)
     today = date.today()
     obligations = [
         item
@@ -179,7 +264,7 @@ def generate_advisories(
 
     available_total = _available_total(normalized_payload["accounts_summary"])
     monthly_income_estimate = _annualized_income(normalized_payload["income_schedule"])
-    reserve_floor = max(200.0, round(monthly_income_estimate * 0.10, 2))
+    reserve_floor = _reserve_floor(monthly_income_estimate, prefs)
     allocatable_cash = max(0.0, available_total - reserve_floor)
 
     decisions: list[dict[str, Any]] = []
@@ -190,7 +275,7 @@ def generate_advisories(
         severity = obligation["severity"]
 
         severity_val = _severity_score(severity)
-        urgent = due_in_days <= 1 or (severity_val >= 3 and due_in_days <= 3)
+        urgent = _urgency_rule(due_in_days, severity_val, str(prefs["risk_tolerance"]))
         past_due = due_in_days < 0
 
         recommended_amount = 0.0
@@ -205,9 +290,12 @@ def generate_advisories(
                 execution_date = today.isoformat()
             else:
                 action = "WAIT"
-                target_date = max(today, due_date - timedelta(days=1))
-                if business_calendar == "uk":
-                    target_date = _previous_uk_business_day(target_date)
+                target_date = _choose_wait_date(
+                    today=today,
+                    due_date=due_date,
+                    business_calendar=business_calendar,
+                    payment_style=str(prefs["payment_style"]),
+                )
                 execution_date = target_date.isoformat()
         elif allocatable_cash > 0:
             recommended_amount = round(allocatable_cash, 2)
@@ -235,6 +323,7 @@ def generate_advisories(
                     execution_date=execution_date,
                     cash_after=cash_after_action,
                     reserve_floor=reserve_floor,
+                    user_preferences=prefs,
                 ),
             }
         )
@@ -256,6 +345,7 @@ def generate_advisories(
             "critical_risk_count": critical_risk_count,
             "high_risk_count": high_risk_count,
         },
+        "preferences_applied": prefs,
         "risk_flags": risk_flags,
         "decisions": decisions,
     }
@@ -267,6 +357,7 @@ def run_engine(
     normalise_lookback_days: int = 120,
     advisory_window_days: int = 14,
 ) -> dict[str, Any]:
+    user_preferences = get_user_preferences(user_id)
     normalized_payload = build_normalized_payload(
         user_id=user_id,
         provider=provider,
@@ -275,6 +366,7 @@ def run_engine(
     return generate_advisories(
         normalized_payload=normalized_payload,
         days_ahead=advisory_window_days,
+        user_preferences=user_preferences,
     )
 
 
