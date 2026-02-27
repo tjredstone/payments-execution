@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Account</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Rent Advisory</p>
+        <h1>Account</h1>
+        <p class="sub">Manage your profile-level controls and data rights.</p>
+      </div>
+      <div class="actions">
+        <p class="user-pill">{{ user_email }}</p>
+        <a class="btn secondary" href="/">Back to Dashboard</a>
+        <form action="/logout" method="post" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn secondary" type="submit">Sign out</button>
+        </form>
+      </div>
+    </header>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Connection</h2>
+      </div>
+      {% if connected %}
+        <p class="ok">Bank connection active.</p>
+      {% else %}
+        <p class="warn">No bank currently connected for this account.</p>
+      {% endif %}
+      <a class="btn primary" href="/connect">Connect via TrueLayer</a>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Data Controls</h2>
+      </div>
+      <p class="subtle">
+        Download a full copy of your stored data or permanently delete your account data.
+      </p>
+      <div class="data-controls">
+        <a class="btn secondary" href="/data/export">Download my data (JSON)</a>
+        <form action="/data/delete" method="post" class="delete-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label for="confirm_text">Type DELETE to confirm permanent deletion</label>
+          <input id="confirm_text" name="confirm_text" type="text" required>
+          <button class="btn danger" type="submit">Delete my account data</button>
+        </form>
+      </div>
+    </section>
+
+    <footer class="footnote">
+      <span class="policy-links">
+        <a href="/privacy">Privacy Policy</a> · <a href="/cookies">Cookie Policy</a>
+      </span>
+    </footer>
+  </main>
+
+  {% if not cookie_consent %}
+    <section class="cookie-banner" role="dialog" aria-live="polite" aria-label="Cookie preferences">
+      <p>
+        We use necessary cookies for login and security. You can optionally allow extra cookies for usage analytics and UI preferences.
+        <a href="/cookies">Learn more</a>.
+      </p>
+      <form method="post" action="/cookie-consent" class="cookie-actions">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ request.path }}">
+        <button type="submit" name="choice" value="accept_all">Accept all</button>
+        <button type="submit" name="choice" value="reject_all" class="secondary">Reject all</button>
+        <button type="submit" name="choice" value="accept_necessary" class="secondary">Accept necessary</button>
+      </form>
+    </section>
+  {% endif %}
+</body>
+</html>

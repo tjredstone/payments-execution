@@ -17,6 +17,7 @@
       <div class="actions">
         <p class="user-pill">{{ user_email }}</p>
         <a class="btn primary" href="/connect">Connect via TrueLayer</a>
+        <a class="btn secondary" href="/account">Account</a>
         <form action="/logout" method="post" class="inline-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button class="btn secondary" type="submit">Sign out</button>
@@ -93,12 +94,32 @@
           <p class="hidden" id="decisions-empty">No decisions in the current window.</p>
         </section>
       </section>
+
     {% endif %}
 
     <footer class="footnote">
       Informational guidance only. Not financial advice. Always verify obligations and payment timing yourself.
+      <span class="policy-links">
+        <a href="/privacy">Privacy Policy</a> · <a href="/cookies">Cookie Policy</a>
+      </span>
     </footer>
   </main>
+
+  {% if not cookie_consent %}
+    <section class="cookie-banner" role="dialog" aria-live="polite" aria-label="Cookie preferences">
+      <p>
+        We use necessary cookies for login and security. You can optionally allow extra cookies for usage analytics and UI preferences.
+        <a href="/cookies">Learn more</a>.
+      </p>
+      <form method="post" action="/cookie-consent" class="cookie-actions">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ request.path }}">
+        <button type="submit" name="choice" value="accept_all">Accept all</button>
+        <button type="submit" name="choice" value="reject_all" class="secondary">Reject all</button>
+        <button type="submit" name="choice" value="accept_necessary" class="secondary">Accept necessary</button>
+      </form>
+    </section>
+  {% endif %}
 
   {% if connected %}
     <script>

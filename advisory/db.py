@@ -253,6 +253,17 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS privacy_audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                detail TEXT,
+                created_at TEXT NOT NULL
+            )
+        """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS direct_debits (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 connection_id INTEGER NOT NULL,
@@ -389,6 +400,205 @@ def get_auth_user_by_id(user_id: str) -> dict[str, Any] | None:
             (user_id,),
         ).fetchone()
     return dict(row) if row else None
+
+
+def log_privacy_event(user_id: str, action: str, detail: str = "") -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO privacy_audit_log(user_id, action, detail, created_at)
+            VALUES (?, ?, ?, ?)
+        """,
+            (user_id, action, detail, _utc_now_iso()),
+        )
+        conn.commit()
+
+
+def export_user_data(user_id: str) -> dict[str, Any]:
+    with get_conn() as conn:
+        profile = conn.execute(
+            """
+            SELECT user_id, email, created_at, updated_at, last_login_at
+            FROM auth_users
+            WHERE user_id = ?
+        """,
+            (user_id,),
+        ).fetchone()
+        connections = conn.execute(
+            """
+            SELECT id, provider, token_type, scope, access_expires_at, refresh_expires_at,
+                   last_refreshed_at, created_at, updated_at
+            FROM bank_connections
+            WHERE user_id = ?
+            ORDER BY created_at ASC
+        """,
+            (user_id,),
+        ).fetchall()
+
+        connection_ids = [int(row["id"]) for row in connections]
+        accounts: list[dict[str, Any]] = []
+        balances: list[dict[str, Any]] = []
+        transactions: list[dict[str, Any]] = []
+        direct_debits: list[dict[str, Any]] = []
+        standing_orders: list[dict[str, Any]] = []
+        if connection_ids:
+            placeholders = ",".join(["?"] * len(connection_ids))
+
+            accounts = [
+                dict(row)
+                for row in conn.execute(
+                    f"""
+                    SELECT *
+                    FROM bank_accounts
+                    WHERE connection_id IN ({placeholders})
+                    ORDER BY created_at ASC
+                """,
+                    connection_ids,
+                ).fetchall()
+            ]
+            balances = [
+                dict(row)
+                for row in conn.execute(
+                    f"""
+                    SELECT *
+                    FROM balance_snapshots
+                    WHERE connection_id IN ({placeholders})
+                    ORDER BY captured_at ASC
+                """,
+                    connection_ids,
+                ).fetchall()
+            ]
+            transactions = [
+                dict(row)
+                for row in conn.execute(
+                    f"""
+                    SELECT *
+                    FROM transactions
+                    WHERE connection_id IN ({placeholders})
+                    ORDER BY COALESCE(timestamp, updated_at) ASC
+                """,
+                    connection_ids,
+                ).fetchall()
+            ]
+            direct_debits = [
+                dict(row)
+                for row in conn.execute(
+                    f"""
+                    SELECT *
+                    FROM direct_debits
+                    WHERE connection_id IN ({placeholders})
+                    ORDER BY updated_at ASC
+                """,
+                    connection_ids,
+                ).fetchall()
+            ]
+            standing_orders = [
+                dict(row)
+                for row in conn.execute(
+                    f"""
+                    SELECT *
+                    FROM standing_orders
+                    WHERE connection_id IN ({placeholders})
+                    ORDER BY updated_at ASC
+                """,
+                    connection_ids,
+                ).fetchall()
+            ]
+
+        advisory_log = [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT *
+                FROM advisory_log
+                WHERE user_id = ?
+                ORDER BY created_at ASC
+            """,
+                (user_id,),
+            ).fetchall()
+        ]
+        privacy_events = [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT *
+                FROM privacy_audit_log
+                WHERE user_id = ?
+                ORDER BY created_at ASC
+            """,
+                (user_id,),
+            ).fetchall()
+        ]
+
+    # Decrypt encrypted text fields for export readability.
+    for row in transactions:
+        for field in [
+            "description",
+            "merchant_name",
+            "transaction_type",
+            "transaction_category",
+            "transaction_classification",
+            "raw_json",
+        ]:
+            row[field] = decrypt_db_text(row.get(field))
+    for row in direct_debits:
+        for field in ["status", "payee_name", "variable_amount", "next_payment_date", "raw_json"]:
+            row[field] = decrypt_db_text(row.get(field))
+    for row in standing_orders:
+        for field in ["status", "payee_name", "frequency", "next_payment_date", "raw_json"]:
+            row[field] = decrypt_db_text(row.get(field))
+    for row in advisory_log:
+        row["counterparty"] = decrypt_db_text(row.get("counterparty"))
+        row["payload_json"] = decrypt_db_text(row.get("payload_json"))
+
+    return {
+        "exported_at": _utc_now_iso(),
+        "user_profile": dict(profile) if profile else None,
+        "bank_connections": [dict(row) for row in connections],
+        "bank_accounts": accounts,
+        "balance_snapshots": balances,
+        "transactions": transactions,
+        "direct_debits": direct_debits,
+        "standing_orders": standing_orders,
+        "advisory_log": advisory_log,
+        "privacy_audit_log": privacy_events,
+    }
+
+
+def delete_user_data(user_id: str) -> dict[str, int]:
+    with get_conn() as conn:
+        conn.execute("BEGIN")
+        try:
+            advisory_cur = conn.execute(
+                """
+                DELETE FROM advisory_log
+                WHERE user_id = ?
+            """,
+                (user_id,),
+            )
+            privacy_cur = conn.execute(
+                """
+                DELETE FROM privacy_audit_log
+                WHERE user_id = ?
+            """,
+                (user_id,),
+            )
+            user_cur = conn.execute(
+                """
+                DELETE FROM users
+                WHERE id = ?
+            """,
+                (user_id,),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    return {
+        "users_deleted": user_cur.rowcount,
+        "advisory_rows_deleted": advisory_cur.rowcount,
+        "privacy_events_deleted": privacy_cur.rowcount,
+    }
 
 
 def create_oauth_state(user_id: str, ttl_seconds: int = 900) -> str:

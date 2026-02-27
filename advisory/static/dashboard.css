@@ -75,6 +75,11 @@ h1 {
   border: 1px solid var(--line);
 }
 
+.btn.danger {
+  background: #8a1f1f;
+  color: #fff;
+}
+
 .inline-form {
   display: inline;
 }
@@ -191,8 +196,77 @@ th {
   line-height: 1.4;
 }
 
+.policy-links {
+  display: inline-block;
+  margin-left: 8px;
+}
+
+.policy-links a {
+  color: var(--brand);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.subtle {
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+.data-controls {
+  display: grid;
+  gap: 12px;
+}
+
+.delete-form {
+  display: grid;
+  gap: 8px;
+  max-width: 420px;
+}
+
+.delete-form label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.delete-form input {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+}
+
 .hidden {
   display: none;
+}
+
+.cookie-banner {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1000;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+.cookie-banner p {
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+
+.cookie-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cookie-actions .secondary {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
 }
 
 @media (max-width: 720px) {

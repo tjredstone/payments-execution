@@ -90,3 +90,36 @@ button {
   margin: 12px 0 0;
   color: var(--muted);
 }
+
+.switch.small {
+  font-size: 13px;
+}
+
+.cookie-banner {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+.cookie-banner p {
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+
+.cookie-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cookie-actions .secondary {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}

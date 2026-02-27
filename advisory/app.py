@@ -1,4 +1,5 @@
 import ipaddress
+import json
 import logging
 import os
 import re
@@ -18,10 +19,13 @@ from db import (
     consume_oauth_state,
     create_auth_user,
     create_oauth_state,
+    delete_user_data,
+    export_user_data,
     ensure_token_crypto_ready,
     get_auth_user_by_id,
     has_connection,
     init_db,
+    log_privacy_event,
     migrate_plaintext_tokens,
     purge_expired_oauth_states,
     save_connection_tokens,
@@ -39,7 +43,9 @@ class SensitiveDataFilter(logging.Filter):
             r"(\s*[=:]\s*)([^\s,;&]+)"
         ),
         # URL query parameters
-        re.compile(r"(?i)([?&](?:access_token|refresh_token|client_secret|code)=)([^&\s]+)"),
+        re.compile(
+            r"(?i)([?&](?:access_token|refresh_token|client_secret|code)=)([^&\s]+)"
+        ),
         # Bearer tokens
         re.compile(r"(?i)\b(authorization\s*:\s*bearer\s+)([A-Za-z0-9\-._~+/]+=*)"),
     ]
@@ -88,7 +94,9 @@ init_db()
 ensure_token_crypto_ready()
 migrated = migrate_plaintext_tokens()
 if migrated:
-    logging.getLogger("advisory").warning("Migrated %s plaintext token row(s) to encrypted storage.", migrated)
+    logging.getLogger("advisory").warning(
+        "Migrated %s plaintext token row(s) to encrypted storage.", migrated
+    )
 purge_expired_oauth_states()
 
 app = Flask(__name__)
@@ -101,7 +109,9 @@ logger = logging.getLogger("advisory")
 app.secret_key = read_secret("APP_SESSION_SECRET")
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = ENFORCE_HTTPS or (os.getenv("SESSION_COOKIE_SECURE", "0") == "1")
+app.config["SESSION_COOKIE_SECURE"] = ENFORCE_HTTPS or (
+    os.getenv("SESSION_COOKIE_SECURE", "0") == "1"
+)
 
 if TRUST_PROXY_HEADERS:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)  # type: ignore[assignment]
@@ -110,7 +120,9 @@ tl_cfg = load_truelayer_config()
 tl = TrueLayerClient(tl_cfg)
 
 if ALLOW_REMOTE and FLASK_DEBUG:
-    raise RuntimeError("Refusing to run with both ALLOW_REMOTE_ACCESS=1 and FLASK_DEBUG=1.")
+    raise RuntimeError(
+        "Refusing to run with both ALLOW_REMOTE_ACCESS=1 and FLASK_DEBUG=1."
+    )
 
 
 _DASHBOARD_CACHE: dict[str, object] = {
@@ -119,6 +131,8 @@ _DASHBOARD_CACHE: dict[str, object] = {
     "payload": None,
 }
 _LOGIN_LIMIT_STATE: dict[str, dict[str, float]] = {}
+CONSENT_COOKIE_NAME = "cookie_consent"
+OPTIONAL_COOKIE_NAMES = ("analytics_id", "ui_locale")
 
 LOGIN_MAX_ATTEMPTS = max(1, int(os.getenv("LOGIN_MAX_ATTEMPTS", "5")))
 LOGIN_WINDOW_SECONDS = max(60, int(os.getenv("LOGIN_WINDOW_SECONDS", "600")))
@@ -177,7 +191,11 @@ def _csrf_token() -> str:
 
 @app.context_processor
 def inject_csrf_token() -> dict[str, object]:
-    return {"csrf_token": _csrf_token}
+    consent = request.cookies.get(CONSENT_COOKIE_NAME)
+    return {
+        "csrf_token": _csrf_token,
+        "cookie_consent": consent,
+    }
 
 
 def _client_ip() -> str:
@@ -332,13 +350,113 @@ def register():
             return redirect(url_for("home"))
         except ValueError as exc:
             error = str(exc)
-    return render_template("auth.html", mode="register", error=error, allow_self_registration=ALLOW_SELF_REGISTRATION)
+    return render_template(
+        "auth.html",
+        mode="register",
+        error=error,
+        allow_self_registration=ALLOW_SELF_REGISTRATION,
+    )
 
 
 @app.post("/logout")
 def logout():
     session.clear()
     return redirect(url_for("login"))
+
+
+@app.get("/data/export")
+@_login_required
+def data_export():
+    user = _current_user()
+    if not user:
+        return redirect(url_for("login"))
+    payload = export_user_data(user["user_id"])
+    log_privacy_event(
+        user["user_id"], "data_export", "User requested full export download."
+    )
+    body = json.dumps(payload, indent=2, ensure_ascii=True)
+    resp = app.response_class(body, mimetype="application/json")
+    resp.headers["Content-Disposition"] = (
+        'attachment; filename="rent_advisory_data_export.json"'
+    )
+    return resp
+
+
+@app.post("/data/delete")
+@_login_required
+def data_delete():
+    user = _current_user()
+    if not user:
+        return redirect(url_for("login"))
+    confirmation = (request.form.get("confirm_text") or "").strip().upper()
+    if confirmation != "DELETE":
+        return "Deletion confirmation text did not match. Type DELETE to confirm.", 400
+
+    user_id = user["user_id"]
+    log_privacy_event(
+        user_id, "data_delete_requested", "User requested account/data deletion."
+    )
+    result = delete_user_data(user_id)
+    logger.warning("User data deleted for user=%s, result=%s", user_id, result)
+    session.clear()
+    return redirect(url_for("login"))
+
+
+@app.post("/cookie-consent")
+def set_cookie_consent():
+    choice = (request.form.get("choice") or "").strip().lower()
+    next_path = (request.form.get("next") or "/").strip()
+    if not next_path.startswith("/"):
+        next_path = "/"
+
+    valid_choices = {"accept_all", "accept_necessary", "reject_all"}
+    if choice not in valid_choices:
+        return "Invalid consent choice.", 400
+
+    resp = redirect(next_path)
+    resp.set_cookie(
+        CONSENT_COOKIE_NAME,
+        choice,
+        max_age=60 * 60 * 24 * 365,
+        secure=app.config["SESSION_COOKIE_SECURE"],
+        httponly=False,
+        samesite="Lax",
+    )
+
+    if choice == "accept_all":
+        analytics_id = secrets.token_urlsafe(24)
+        locale_hint = request.accept_languages.best or "en-GB"
+        resp.set_cookie(
+            "analytics_id",
+            analytics_id,
+            max_age=60 * 60 * 24 * 365,
+            secure=app.config["SESSION_COOKIE_SECURE"],
+            httponly=False,
+            samesite="Lax",
+        )
+        resp.set_cookie(
+            "ui_locale",
+            locale_hint,
+            max_age=60 * 60 * 24 * 365,
+            secure=app.config["SESSION_COOKIE_SECURE"],
+            httponly=False,
+            samesite="Lax",
+        )
+    else:
+        for cookie_name in OPTIONAL_COOKIE_NAMES:
+            resp.delete_cookie(cookie_name, samesite="Lax")
+
+    return resp
+
+
+@app.get("/privacy")
+def privacy_policy():
+    return render_template("privacy.html")
+
+
+@app.get("/cookies")
+def cookie_policy():
+    return render_template("cookies.html")
 
 
 @app.get("/")
@@ -358,8 +476,27 @@ def home():
     )
 
 
+@app.get("/account")
+@_login_required
+def account_page():
+    user = _current_user()
+    if not user:
+        return redirect(url_for("login"))
+    provider = "truelayer"
+    connected = has_connection(user_id=user["user_id"], provider=provider)
+    return render_template(
+        "account.html",
+        user_email=user["email"],
+        connected=connected,
+    )
+
+
 def _dashboard_cached(user_id: str, provider: str) -> dict:
-    lookback_days = int(os.getenv("UI_NORMALISE_LOOKBACK_DAYS", os.getenv("NORMALISE_LOOKBACK_DAYS", "90")))
+    lookback_days = int(
+        os.getenv(
+            "UI_NORMALISE_LOOKBACK_DAYS", os.getenv("NORMALISE_LOOKBACK_DAYS", "90")
+        )
+    )
     advisory_window_days = int(os.getenv("ADVISORY_WINDOW_DAYS", "14"))
     cache_ttl_seconds = int(os.getenv("DASHBOARD_CACHE_TTL_SECONDS", "45"))
     now = time.time()
@@ -452,7 +589,9 @@ def callback():
     refresh_token = tokens.get("refresh_token")
 
     if not access_token or not refresh_token:
-        logger.error("Token response missing required fields. Keys: %s", sorted(tokens.keys()))
+        logger.error(
+            "Token response missing required fields. Keys: %s", sorted(tokens.keys())
+        )
         return "Unexpected token response from provider.", 500
 
     try:
