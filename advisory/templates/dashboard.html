@@ -103,7 +103,10 @@
                   <th>Counterparty</th>
                   <th>Due</th>
                   <th>Amount</th>
+                  <th>Forecast</th>
+                  <th>Confidence</th>
                   <th>Reason</th>
+                  <th>Details</th>
                 </tr>
               </thead>
               <tbody id="decisions-body"></tbody>
@@ -156,27 +159,70 @@
           return action.replaceAll("_", " ");
         };
 
+        const confidenceReasonHint = (item) => {
+          const details = item.confidence_assessment || {};
+          if (details.low_confidence) {
+            return " Data quality is lower than usual, so this recommendation is more cautious.";
+          }
+          return "";
+        };
+
         const friendlyReason = (item) => {
           const action = String(item.action || "");
           const dueInDays = Number(item.due_in_days ?? 999);
           const amount = money(item.recommended_amount, item.currency || "GBP");
 
           if (action === "PAY_NOW") {
-            if (dueInDays <= 0) return `Due now. Recommended to pay ${amount} today.`;
-            return `Due soon. Recommended to pay ${amount} now to avoid risk.`;
+            if (dueInDays <= 0) return `Due now. Recommended to pay ${amount} today.${confidenceReasonHint(item)}`;
+            return `Due soon. Recommended to pay ${amount} now to avoid risk.${confidenceReasonHint(item)}`;
           }
           if (action === "WAIT") {
-            return `Safe to wait for now. Planned payment date is ${localDate(item.recommended_execution_date)}.`;
+            return `Safe to wait for now. Planned payment date is ${localDate(item.recommended_execution_date)}.${confidenceReasonHint(item)}`;
           }
           if (action === "PARTIAL_PAY") {
-            return `Cash is tight right now. Suggested partial payment is ${amount}.`;
+            return `Cash is tight right now. Suggested partial payment is ${amount}.${confidenceReasonHint(item)}`;
           }
           if (action === "HOLD_AND_ALERT") {
-            return "Hold this payment for now and review manually before proceeding.";
+            return `Hold this payment for now and review manually before proceeding.${confidenceReasonHint(item)}`;
           }
 
           const raw = (item.rationale && item.rationale[0]) ? item.rationale[0] : "";
-          return raw || "Recommendation available.";
+          return (raw || "Recommendation available.") + confidenceReasonHint(item);
+        };
+
+        const forecastLabel = (item) => {
+          const f = item.forecast_assessment || {};
+          const waitUnsafe = Boolean(f.wait_breaches_hard_floor) || Boolean(f.wait_breaches_reserve_floor);
+          const payNowUnsafe = Boolean(f.pay_now_breaches_hard_floor) || Boolean(f.pay_now_breaches_reserve_floor);
+          if (!waitUnsafe) return "Wait is safe";
+          if (waitUnsafe && !payNowUnsafe) return "Waiting is risky";
+          return "Both options are stressed";
+        };
+
+        const confidenceLabel = (item) => {
+          const c = Number(item.confidence ?? 0);
+          if (c >= 0.8) return { text: "High", cls: "conf-high" };
+          if (c >= 0.6) return { text: "Medium", cls: "conf-medium" };
+          return { text: "Low", cls: "conf-low" };
+        };
+
+        const yesNo = (value) => (value ? "Yes" : "No");
+
+        const detailHtml = (item) => {
+          const f = item.forecast_assessment || {};
+          const rule = String(item.decision_rule || "-").replaceAll("_", " ");
+          const rail = String(item.rail_type || "-").replaceAll("_", " ");
+          return `
+            <div class="decision-detail">
+              <p><strong>Rail type:</strong> ${rail}</p>
+              <p><strong>Decision rule:</strong> ${rule}</p>
+              <p><strong>Earliest safe date:</strong> ${localDate(f.earliest_safe_date)}</p>
+              <p><strong>Latest safe date:</strong> ${localDate(f.latest_safe_date)}</p>
+              <p><strong>Recommended date:</strong> ${localDate(f.recommended_date)}</p>
+              <p><strong>WAIT path:</strong> min balance ${money(f.wait_min_balance, item.currency || "GBP")}, hard floor breached ${yesNo(f.wait_breaches_hard_floor)}, reserve breached ${yesNo(f.wait_breaches_reserve_floor)}</p>
+              <p><strong>PAY NOW path:</strong> min balance ${money(f.pay_now_min_balance, item.currency || "GBP")}, hard floor breached ${yesNo(f.pay_now_breaches_hard_floor)}, reserve breached ${yesNo(f.pay_now_breaches_reserve_floor)}</p>
+            </div>
+          `;
         };
 
         const money = (amount, currency = "GBP") => {
@@ -292,16 +338,43 @@
               decisionsEmptyEl.classList.remove("hidden");
             } else {
               decisionsEmptyEl.classList.add("hidden");
-              decisions.forEach((item) => {
+              decisions.forEach((item, idx) => {
+                const conf = confidenceLabel(item);
+                const safeKey = String(item.obligation_key || "").replace(/[^a-zA-Z0-9_-]/g, "");
+                const detailId = `decision-detail-${safeKey || idx}`;
                 const tr = document.createElement("tr");
                 tr.innerHTML = `
                   <td><span class="chip">${friendlyAction(item)}</span></td>
                   <td>${item.counterparty || "-"}</td>
                   <td>${localDate(item.due_date)}</td>
                   <td>${money(item.recommended_amount, item.currency || "GBP")}</td>
+                  <td>${forecastLabel(item)}</td>
+                  <td><span class="chip ${conf.cls}">${conf.text}</span></td>
                   <td>${friendlyReason(item)}</td>
+                  <td><button class="link-btn" type="button" data-target="${detailId}">View details</button></td>
                 `;
                 decisionsBody.appendChild(tr);
+
+                const detailRow = document.createElement("tr");
+                detailRow.id = detailId;
+                detailRow.className = "hidden";
+                detailRow.innerHTML = `
+                  <td colspan="8">
+                    ${detailHtml(item)}
+                  </td>
+                `;
+                decisionsBody.appendChild(detailRow);
+              });
+
+              decisionsBody.querySelectorAll(".link-btn").forEach((btn) => {
+                btn.addEventListener("click", () => {
+                  const target = btn.getAttribute("data-target");
+                  if (!target) return;
+                  const row = document.getElementById(target);
+                  if (!row) return;
+                  row.classList.toggle("hidden");
+                  btn.textContent = row.classList.contains("hidden") ? "View details" : "Hide details";
+                });
               });
             }
 

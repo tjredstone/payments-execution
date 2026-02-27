@@ -200,6 +200,50 @@ th {
   font-weight: 700;
 }
 
+.chip.conf-high {
+  background: #e9f8ee;
+  border-color: #b9dfc4;
+  color: #1c6f43;
+}
+
+.chip.conf-medium {
+  background: #fff8e6;
+  border-color: #e4cf98;
+  color: #8f640b;
+}
+
+.chip.conf-low {
+  background: #fdecec;
+  border-color: #e8b8b8;
+  color: #9b2c2c;
+}
+
+.link-btn {
+  background: transparent;
+  border: 0;
+  color: var(--brand);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+
+.decision-detail {
+  padding: 8px 2px;
+}
+
+.decision-detail p {
+  margin: 6px 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.decision-detail strong {
+  color: var(--ink);
+}
+
 .footnote {
   margin-top: 18px;
   color: var(--muted);
