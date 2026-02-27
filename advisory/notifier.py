@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -11,9 +12,11 @@ from db import (
     ensure_token_crypto_ready,
     has_advisory_been_sent,
     init_db,
+    list_connections,
     log_advisory_sent,
     make_decision_fingerprint,
     migrate_plaintext_tokens,
+    resolve_effective_user_id,
 )
 from engine import run_engine
 
@@ -50,18 +53,7 @@ def _post_webhook(webhook_url: str, payload: dict[str, Any], timeout_seconds: in
     resp.raise_for_status()
 
 
-def run_notifier() -> None:
-    load_dotenv()
-    init_db()
-    ensure_token_crypto_ready()
-    migrate_plaintext_tokens()
-
-    user_id = os.getenv("LOCAL_USER_ID", "local-dev-user")
-    provider = os.getenv("OPEN_BANKING_PROVIDER", "truelayer")
-    lookback_days = int(os.getenv("NORMALISE_LOOKBACK_DAYS", "120"))
-    advisory_window_days = int(os.getenv("ADVISORY_WINDOW_DAYS", "14"))
-    webhook_url = os.getenv("ADVISORY_WEBHOOK_URL", "").strip()
-
+def _run_notifier_for_user(user_id: str, provider: str, lookback_days: int, advisory_window_days: int, webhook_url: str) -> None:
     engine_output = run_engine(
         user_id=user_id,
         provider=provider,
@@ -77,13 +69,13 @@ def run_notifier() -> None:
             unsent.append(decision)
 
     if not unsent:
-        print("No new actionable advisories.")
+        print(f"No new actionable advisories for user={user_id}.")
         return
 
     timestamp = datetime.now(timezone.utc).isoformat()
     text_lines = [_format_decision_line(decision) for decision in unsent]
     message = "\n".join(text_lines) + "\n\n" + DISCLAIMER
-    print("New advisories:\n" + message)
+    print(f"New advisories for user={user_id}:\n{message}")
 
     sent_channels: list[str] = ["console"]
     if webhook_url:
@@ -107,15 +99,57 @@ def run_notifier() -> None:
                 sent_via=channel,
             )
 
-    print(
-        "Delivered advisories: "
-        f"{len(unsent)} via {', '.join(sent_channels)}"
-    )
+    print(f"Delivered advisories for user={user_id}: {len(unsent)} via {', '.join(sent_channels)}")
+
+
+def run_notifier(user_id: str | None = None, all_users: bool = False) -> None:
+    load_dotenv()
+    init_db()
+    ensure_token_crypto_ready()
+    migrate_plaintext_tokens()
+
+    env_user_id = os.getenv("LOCAL_USER_ID")
+    provider = os.getenv("OPEN_BANKING_PROVIDER", "truelayer")
+    lookback_days = int(os.getenv("NORMALISE_LOOKBACK_DAYS", "120"))
+    advisory_window_days = int(os.getenv("ADVISORY_WINDOW_DAYS", "14"))
+    webhook_url = os.getenv("ADVISORY_WEBHOOK_URL", "").strip()
+    if all_users:
+        user_ids = sorted({row["user_id"] for row in list_connections(provider=provider)})
+        if not user_ids:
+            print("No connected bank users found.")
+            return
+    else:
+        try:
+            user_ids = [resolve_effective_user_id(user_id or env_user_id)]
+        except ValueError as exc:
+            print(f"{exc} Example: python advisory/notifier.py --user-id <uuid>")
+            return
+
+    for target_user_id in user_ids:
+        _run_notifier_for_user(
+            user_id=target_user_id,
+            provider=provider,
+            lookback_days=lookback_days,
+            advisory_window_days=advisory_window_days,
+            webhook_url=webhook_url,
+        )
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Send actionable advisory notifications.")
+    parser.add_argument("--user-id", help="User ID to run notifier for.")
+    parser.add_argument(
+        "--all-users",
+        action="store_true",
+        help="Run notifier for every connected user.",
+    )
+    args = parser.parse_args()
+    if args.user_id and args.all_users:
+        print("Use either --user-id or --all-users, not both.")
+        return
+
     try:
-        run_notifier()
+        run_notifier(user_id=args.user_id, all_users=args.all_users)
     except ValueError as exc:
         print(f"{exc} Run advisory/app.py then advisory/run_daily.py first.")
     except RuntimeError as exc:

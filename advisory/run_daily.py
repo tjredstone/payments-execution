@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from datetime import date, datetime, timedelta, timezone
@@ -12,6 +13,7 @@ from db import (
     add_balance_snapshot,
     ensure_token_crypto_ready,
     get_connection,
+    get_conn,
     init_db,
     list_connections,
     migrate_plaintext_sensitive_fields,
@@ -70,7 +72,7 @@ def _extract_balance_fields(balance_item: dict) -> tuple[float | None, float | N
     return available, current, currency, updated_at_provider
 
 
-def run_daily() -> None:
+def run_daily(user_id: str | None = None, all_users: bool = False) -> None:
     load_dotenv()
     init_db()
     ensure_token_crypto_ready()
@@ -78,7 +80,15 @@ def run_daily() -> None:
     migrate_plaintext_sensitive_fields()
     purge_expired_oauth_states()
 
-    user_id_filter = os.getenv("LOCAL_USER_ID", "").strip()
+    env_user_id = os.getenv("LOCAL_USER_ID", "").strip()
+    user_id_filter = (user_id or env_user_id).strip()
+    if all_users and user_id_filter:
+        raise ValueError("Use either --all-users or --user-id/LOCAL_USER_ID, not both.")
+    if not all_users and not user_id_filter:
+        raise ValueError(
+            "Missing user id. Use --user-id <uuid> (recommended) or set LOCAL_USER_ID. "
+            "Use --all-users only for explicit multi-tenant ingestion jobs."
+        )
     provider = "truelayer"
     lookback_days = _env_int("TX_LOOKBACK_DAYS", 35)
     tx_retention_days = _env_int("TX_RETENTION_DAYS", 180)
@@ -137,83 +147,90 @@ def run_daily() -> None:
             continue
         total_accounts += len(accounts)
 
-        for account in accounts:
-            account_id = account["account_id"]
-            upsert_bank_account(
-                connection_id=connection_id,
-                provider_account_id=account_id,
-                display_name=account.get("display_name"),
-                account_type=account.get("account_type"),
-                currency=account.get("currency"),
-            )
-
-            balances = client.get_balance(access_token=access_token, account_id=account_id)
-            for bal in balances:
-                available, current, currency, updated_at_provider = _extract_balance_fields(bal)
-                add_balance_snapshot(
+        with get_conn() as ingestion_conn:
+            for account in accounts:
+                account_id = account["account_id"]
+                upsert_bank_account(
                     connection_id=connection_id,
                     provider_account_id=account_id,
-                    available=available,
-                    current=current,
-                    currency=currency,
-                    updated_at_provider=updated_at_provider,
+                    display_name=account.get("display_name"),
+                    account_type=account.get("account_type"),
+                    currency=account.get("currency"),
+                    conn=ingestion_conn,
                 )
-                total_balances += 1
 
-            transactions = client.get_transactions(
-                access_token=access_token,
-                account_id=account_id,
-                from_date=tx_from,
-                to_date=tx_to,
-            )
-            for tx in transactions:
-                tx_id = tx.get("transaction_id")
-                amount = tx.get("amount")
-                if not tx_id or amount is None:
-                    continue
-                upsert_transaction(
-                    connection_id=connection_id,
-                    provider_account_id=account_id,
-                    tx=tx,
-                    raw_json=json.dumps(tx, ensure_ascii=True, sort_keys=True),
-                )
-                total_transactions += 1
+                balances = client.get_balance(access_token=access_token, account_id=account_id)
+                for bal in balances:
+                    available, current, currency, updated_at_provider = _extract_balance_fields(bal)
+                    add_balance_snapshot(
+                        connection_id=connection_id,
+                        provider_account_id=account_id,
+                        available=available,
+                        current=current,
+                        currency=currency,
+                        updated_at_provider=updated_at_provider,
+                        conn=ingestion_conn,
+                    )
+                    total_balances += 1
 
-            try:
-                direct_debits = client.get_direct_debits(access_token=access_token, account_id=account_id)
-            except requests.HTTPError as exc:
-                code = exc.response.status_code if exc.response is not None else "unknown"
-                print(
-                    f"Direct debit fetch failed for user={user_id} account={account_id} "
-                    f"(status={code}); continuing."
+                transactions = client.get_transactions(
+                    access_token=access_token,
+                    account_id=account_id,
+                    from_date=tx_from,
+                    to_date=tx_to,
                 )
-                direct_debits = []
-            for dd in direct_debits:
-                upsert_direct_debit(
-                    connection_id=connection_id,
-                    provider_account_id=account_id,
-                    direct_debit=dd,
-                    raw_json=json.dumps(dd, ensure_ascii=True, sort_keys=True),
-                )
-                total_direct_debits += 1
+                for tx in transactions:
+                    tx_id = tx.get("transaction_id")
+                    amount = tx.get("amount")
+                    if not tx_id or amount is None:
+                        continue
+                    upsert_transaction(
+                        connection_id=connection_id,
+                        provider_account_id=account_id,
+                        tx=tx,
+                        raw_json=json.dumps(tx, ensure_ascii=True, sort_keys=True),
+                        conn=ingestion_conn,
+                    )
+                    total_transactions += 1
 
-            try:
-                standing_orders = client.get_standing_orders(access_token=access_token, account_id=account_id)
-            except requests.HTTPError as exc:
-                code = exc.response.status_code if exc.response is not None else "unknown"
-                print(
-                    f"Standing order fetch failed for user={user_id} account={account_id} "
-                    f"(status={code}); continuing."
-                )
-                standing_orders = []
-            for so in standing_orders:
-                upsert_standing_order(
-                    connection_id=connection_id,
-                    provider_account_id=account_id,
-                    standing_order=so,
-                    raw_json=json.dumps(so, ensure_ascii=True, sort_keys=True),
-                )
-                total_standing_orders += 1
+                try:
+                    direct_debits = client.get_direct_debits(access_token=access_token, account_id=account_id)
+                except requests.HTTPError as exc:
+                    code = exc.response.status_code if exc.response is not None else "unknown"
+                    print(
+                        f"Direct debit fetch failed for user={user_id} account={account_id} "
+                        f"(status={code}); continuing."
+                    )
+                    direct_debits = []
+                for dd in direct_debits:
+                    upsert_direct_debit(
+                        connection_id=connection_id,
+                        provider_account_id=account_id,
+                        direct_debit=dd,
+                        raw_json=json.dumps(dd, ensure_ascii=True, sort_keys=True),
+                        conn=ingestion_conn,
+                    )
+                    total_direct_debits += 1
+
+                try:
+                    standing_orders = client.get_standing_orders(access_token=access_token, account_id=account_id)
+                except requests.HTTPError as exc:
+                    code = exc.response.status_code if exc.response is not None else "unknown"
+                    print(
+                        f"Standing order fetch failed for user={user_id} account={account_id} "
+                        f"(status={code}); continuing."
+                    )
+                    standing_orders = []
+                for so in standing_orders:
+                    upsert_standing_order(
+                        connection_id=connection_id,
+                        provider_account_id=account_id,
+                        standing_order=so,
+                        raw_json=json.dumps(so, ensure_ascii=True, sort_keys=True),
+                        conn=ingestion_conn,
+                    )
+                    total_standing_orders += 1
+            ingestion_conn.commit()
 
     print("Daily pull complete.")
     print(f"Connections processed: {len(connections)}")
@@ -245,9 +262,29 @@ def run_daily() -> None:
     )
 
 
-if __name__ == "__main__":
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Fetch and ingest account data from open banking provider.")
+    parser.add_argument("--user-id", help="Process a single user ID (recommended for local runs).")
+    parser.add_argument(
+        "--all-users",
+        action="store_true",
+        help="Process every connected user (explicit multi-tenant batch mode).",
+    )
+    args = parser.parse_args()
+
+    if args.user_id and args.all_users:
+        print("Use either --user-id or --all-users, not both.")
+        return
+
     try:
-        run_daily()
+        run_daily(user_id=args.user_id, all_users=args.all_users)
+    except ValueError as exc:
+        print(exc)
+        print("Example: python advisory/run_daily.py --user-id <uuid>")
     except requests.HTTPError as exc:
         print(f"Provider request failed: {exc}")
         raise
+
+
+if __name__ == "__main__":
+    main()

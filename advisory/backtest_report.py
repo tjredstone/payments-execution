@@ -8,7 +8,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from db import decrypt_db_text, get_conn, init_db
+from db import decrypt_db_text, get_conn, init_db, resolve_effective_user_id
 
 
 def _to_date(value: str | None) -> date | None:
@@ -204,6 +204,7 @@ def build_backtest_report(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Backtest advisory decisions against observed transactions.")
+    parser.add_argument("--user-id", help="User ID to run backtest for.")
     parser.add_argument("--lookback-days", type=int, default=120)
     parser.add_argument("--amount-tolerance", type=float, default=1.0)
     parser.add_argument("--day-window", type=int, default=5)
@@ -211,7 +212,11 @@ def main() -> None:
 
     load_dotenv()
     init_db()
-    user_id = os.getenv("LOCAL_USER_ID", "local-dev-user")
+    try:
+        user_id = resolve_effective_user_id(args.user_id or os.getenv("LOCAL_USER_ID"))
+    except ValueError as exc:
+        print(f"{exc} Example: python advisory/backtest_report.py --user-id <uuid>")
+        return
     provider = os.getenv("OPEN_BANKING_PROVIDER", "truelayer")
 
     report = build_backtest_report(

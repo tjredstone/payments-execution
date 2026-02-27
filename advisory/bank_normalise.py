@@ -12,7 +12,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from db import decrypt_db_text, get_conn, get_connection, init_db
+from db import decrypt_db_text, get_conn, get_connection, init_db, resolve_effective_user_id
 
 
 @dataclass(frozen=True)
@@ -819,6 +819,7 @@ def build_normalized_payload(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Normalize bank data for advisory engine.")
+    parser.add_argument("--user-id", help="User ID to run normalization for.")
     parser.add_argument(
         "--summary-only",
         action="store_true",
@@ -828,7 +829,11 @@ def main() -> None:
 
     load_dotenv()
     init_db()
-    user_id = os.getenv("LOCAL_USER_ID", "local-dev-user")
+    try:
+        user_id = resolve_effective_user_id(args.user_id or os.getenv("LOCAL_USER_ID"))
+    except ValueError as exc:
+        print(f"{exc} Example: python advisory/bank_normalise.py --user-id <uuid>")
+        return
     provider = os.getenv("OPEN_BANKING_PROVIDER", "truelayer")
     lookback_days = int(os.getenv("NORMALISE_LOOKBACK_DAYS", "120"))
 

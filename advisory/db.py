@@ -2,18 +2,19 @@ import os
 import hashlib
 import json
 import secrets
-import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
+from psycopg import connect as pg_connect
+from psycopg.rows import dict_row
 from secret_store import read_secret
 from werkzeug.security import check_password_hash, generate_password_hash
 
-DB_PATH = Path(__file__).parent / "rentbot.db"
 ENCRYPTION_KEY_ENV = "TOKENS_ENCRYPTION_KEY"
+DATABASE_URL_ENV = "DATABASE_URL"
+DB_SKIP_SCHEMA_INIT_ENV = "DB_SKIP_SCHEMA_INIT"
 FIELD_ENC_PREFIX = "enc::"
 SENSITIVE_TEXT_COLUMNS: dict[str, list[str]] = {
     "transactions": [
@@ -52,18 +53,54 @@ def _expires_at_iso(seconds: int | None) -> str | None:
     return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
 
 
-def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+def _database_url() -> str:
+    url = os.getenv(DATABASE_URL_ENV, "").strip()
+    if not url:
+        raise RuntimeError(f"Missing {DATABASE_URL_ENV} for postgres backend.")
+    if "sslmode=" not in url:
+        joiner = "&" if "?" in url else "?"
+        url = f"{url}{joiner}sslmode=require"
+    return url
 
 
-def _harden_db_file_permissions() -> None:
-    if not DB_PATH.exists():
-        return
-    # Owner read/write only for local secret storage.
-    os.chmod(DB_PATH, 0o600)
+class PostgresConn:
+    def __init__(self):
+        self._conn = pg_connect(
+            _database_url(),
+            row_factory=dict_row,
+        )
+
+    @staticmethod
+    def _translate_query(query: str) -> str:
+        # Convert SQLite qmark parameters to psycopg %s parameters.
+        return query.replace("?", "%s")
+
+    def execute(self, query: str, params: Any = None):
+        translated = self._translate_query(query)
+        if params is None:
+            return self._conn.execute(translated)
+        return self._conn.execute(translated, params)
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def rollback(self) -> None:
+        self._conn.rollback()
+
+    def close(self) -> None:
+        self._conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type:
+            self._conn.rollback()
+        self._conn.close()
+
+
+def get_conn():
+    return PostgresConn()
 
 
 def _get_cipher() -> Fernet:
@@ -124,188 +161,173 @@ def _decrypt_token(token: str) -> str:
 
 
 def init_db() -> None:
+    if os.getenv(DB_SKIP_SCHEMA_INIT_ENV, "0").strip() == "1":
+        return
+
+    schema = [
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS oauth_states (
+            state TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            consumed_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS auth_users (
+            user_id TEXT PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_login_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS bank_connections (
+            id BIGSERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            access_token TEXT NOT NULL,
+            refresh_token TEXT NOT NULL,
+            token_type TEXT,
+            scope TEXT,
+            access_expires_at TEXT,
+            refresh_expires_at TEXT,
+            last_refreshed_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(user_id, provider),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS bank_accounts (
+            id BIGSERIAL PRIMARY KEY,
+            connection_id BIGINT NOT NULL,
+            provider_account_id TEXT NOT NULL,
+            display_name TEXT,
+            account_type TEXT,
+            currency TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(connection_id, provider_account_id),
+            FOREIGN KEY (connection_id) REFERENCES bank_connections(id) ON DELETE CASCADE
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS balance_snapshots (
+            id BIGSERIAL PRIMARY KEY,
+            connection_id BIGINT NOT NULL,
+            provider_account_id TEXT NOT NULL,
+            available REAL,
+            current REAL,
+            currency TEXT,
+            updated_at_provider TEXT,
+            captured_at TEXT NOT NULL,
+            FOREIGN KEY (connection_id) REFERENCES bank_connections(id) ON DELETE CASCADE
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS transactions (
+            id BIGSERIAL PRIMARY KEY,
+            connection_id BIGINT NOT NULL,
+            provider_account_id TEXT NOT NULL,
+            provider_transaction_id TEXT NOT NULL,
+            amount REAL NOT NULL,
+            currency TEXT NOT NULL,
+            description TEXT,
+            merchant_name TEXT,
+            transaction_type TEXT,
+            transaction_category TEXT,
+            transaction_classification TEXT,
+            timestamp TEXT,
+            running_balance REAL,
+            raw_json TEXT NOT NULL,
+            first_seen_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(connection_id, provider_transaction_id),
+            FOREIGN KEY (connection_id) REFERENCES bank_connections(id) ON DELETE CASCADE
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS advisory_log (
+            id BIGSERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            decision_fingerprint TEXT NOT NULL,
+            action TEXT NOT NULL,
+            counterparty TEXT NOT NULL,
+            due_date TEXT NOT NULL,
+            amount REAL NOT NULL,
+            payload_json TEXT NOT NULL,
+            sent_via TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(user_id, provider, decision_fingerprint)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS privacy_audit_log (
+            id BIGSERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            detail TEXT,
+            created_at TEXT NOT NULL
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS direct_debits (
+            id BIGSERIAL PRIMARY KEY,
+            connection_id BIGINT NOT NULL,
+            provider_account_id TEXT NOT NULL,
+            provider_direct_debit_id TEXT NOT NULL,
+            status TEXT,
+            payee_name TEXT,
+            variable_amount TEXT,
+            next_payment_date TEXT,
+            latest_amount REAL,
+            latest_currency TEXT,
+            raw_json TEXT NOT NULL,
+            first_seen_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(connection_id, provider_account_id, provider_direct_debit_id),
+            FOREIGN KEY (connection_id) REFERENCES bank_connections(id) ON DELETE CASCADE
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS standing_orders (
+            id BIGSERIAL PRIMARY KEY,
+            connection_id BIGINT NOT NULL,
+            provider_account_id TEXT NOT NULL,
+            provider_standing_order_id TEXT NOT NULL,
+            status TEXT,
+            payee_name TEXT,
+            frequency TEXT,
+            next_payment_date TEXT,
+            next_payment_amount REAL,
+            next_payment_currency TEXT,
+            raw_json TEXT NOT NULL,
+            first_seen_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(connection_id, provider_account_id, provider_standing_order_id),
+            FOREIGN KEY (connection_id) REFERENCES bank_connections(id) ON DELETE CASCADE
+        )
+        """,
+    ]
+
     with get_conn() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL
-            )
-        """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS oauth_states (
-                state TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                expires_at TEXT NOT NULL,
-                consumed_at TEXT,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )
-        """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS auth_users (
-                user_id TEXT PRIMARY KEY,
-                email TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                last_login_at TEXT,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )
-        """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS bank_connections (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                access_token TEXT NOT NULL,
-                refresh_token TEXT NOT NULL,
-                token_type TEXT,
-                scope TEXT,
-                access_expires_at TEXT,
-                refresh_expires_at TEXT,
-                last_refreshed_at TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                UNIQUE(user_id, provider),
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )
-        """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS bank_accounts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                connection_id INTEGER NOT NULL,
-                provider_account_id TEXT NOT NULL,
-                display_name TEXT,
-                account_type TEXT,
-                currency TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                UNIQUE(connection_id, provider_account_id),
-                FOREIGN KEY (connection_id) REFERENCES bank_connections(id) ON DELETE CASCADE
-            )
-        """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS balance_snapshots (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                connection_id INTEGER NOT NULL,
-                provider_account_id TEXT NOT NULL,
-                available REAL,
-                current REAL,
-                currency TEXT,
-                updated_at_provider TEXT,
-                captured_at TEXT NOT NULL,
-                FOREIGN KEY (connection_id) REFERENCES bank_connections(id) ON DELETE CASCADE
-            )
-        """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                connection_id INTEGER NOT NULL,
-                provider_account_id TEXT NOT NULL,
-                provider_transaction_id TEXT NOT NULL,
-                amount REAL NOT NULL,
-                currency TEXT NOT NULL,
-                description TEXT,
-                merchant_name TEXT,
-                transaction_type TEXT,
-                transaction_category TEXT,
-                transaction_classification TEXT,
-                timestamp TEXT,
-                running_balance REAL,
-                raw_json TEXT NOT NULL,
-                first_seen_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                UNIQUE(connection_id, provider_transaction_id),
-                FOREIGN KEY (connection_id) REFERENCES bank_connections(id) ON DELETE CASCADE
-            )
-        """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS advisory_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                decision_fingerprint TEXT NOT NULL,
-                action TEXT NOT NULL,
-                counterparty TEXT NOT NULL,
-                due_date TEXT NOT NULL,
-                amount REAL NOT NULL,
-                payload_json TEXT NOT NULL,
-                sent_via TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                UNIQUE(user_id, provider, decision_fingerprint)
-            )
-        """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS privacy_audit_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                action TEXT NOT NULL,
-                detail TEXT,
-                created_at TEXT NOT NULL
-            )
-        """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS direct_debits (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                connection_id INTEGER NOT NULL,
-                provider_account_id TEXT NOT NULL,
-                provider_direct_debit_id TEXT NOT NULL,
-                status TEXT,
-                payee_name TEXT,
-                variable_amount TEXT,
-                next_payment_date TEXT,
-                latest_amount REAL,
-                latest_currency TEXT,
-                raw_json TEXT NOT NULL,
-                first_seen_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                UNIQUE(connection_id, provider_account_id, provider_direct_debit_id),
-                FOREIGN KEY (connection_id) REFERENCES bank_connections(id) ON DELETE CASCADE
-            )
-        """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS standing_orders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                connection_id INTEGER NOT NULL,
-                provider_account_id TEXT NOT NULL,
-                provider_standing_order_id TEXT NOT NULL,
-                status TEXT,
-                payee_name TEXT,
-                frequency TEXT,
-                next_payment_date TEXT,
-                next_payment_amount REAL,
-                next_payment_currency TEXT,
-                raw_json TEXT NOT NULL,
-                first_seen_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                UNIQUE(connection_id, provider_account_id, provider_standing_order_id),
-                FOREIGN KEY (connection_id) REFERENCES bank_connections(id) ON DELETE CASCADE
-            )
-        """
-        )
+        for statement in schema:
+            conn.execute(statement)
         conn.commit()
-    _harden_db_file_permissions()
 
 
 def ensure_user(user_id: str) -> None:
@@ -354,8 +376,10 @@ def create_auth_user(email: str, password: str) -> str:
                 ),
             )
             conn.commit()
-        except sqlite3.IntegrityError as exc:
-            raise ValueError("An account with that email already exists.") from exc
+        except Exception as exc:
+            if "unique" in str(exc).lower():
+                raise ValueError("An account with that email already exists.") from exc
+            raise
     return user_id
 
 
@@ -400,6 +424,13 @@ def get_auth_user_by_id(user_id: str) -> dict[str, Any] | None:
             (user_id,),
         ).fetchone()
     return dict(row) if row else None
+
+
+def resolve_effective_user_id(env_user_id: str | None = None) -> str:
+    explicit = (env_user_id or "").strip()
+    if explicit:
+        return explicit
+    raise ValueError("Missing LOCAL_USER_ID. Set an explicit user id for CLI execution.")
 
 
 def log_privacy_event(user_id: str, action: str, detail: str = "") -> None:
@@ -799,11 +830,12 @@ def log_advisory_sent(
     with get_conn() as conn:
         conn.execute(
             """
-            INSERT OR IGNORE INTO advisory_log(
+            INSERT INTO advisory_log(
                 user_id, provider, decision_fingerprint, action, counterparty,
                 due_date, amount, payload_json, sent_via, created_at
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, provider, decision_fingerprint) DO NOTHING
         """,
             (
                 user_id,
@@ -1083,32 +1115,37 @@ def upsert_bank_account(
     display_name: str | None,
     account_type: str | None,
     currency: str | None,
+    conn=None,
 ) -> None:
     now = _utc_now_iso()
-    with get_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO bank_accounts(
-                connection_id, provider_account_id, display_name, account_type, currency, created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(connection_id, provider_account_id) DO UPDATE SET
-                display_name = excluded.display_name,
-                account_type = excluded.account_type,
-                currency = excluded.currency,
-                updated_at = excluded.updated_at
-        """,
-            (
-                connection_id,
-                provider_account_id,
-                display_name,
-                account_type,
-                currency,
-                now,
-                now,
-            ),
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    conn.execute(
+        """
+        INSERT INTO bank_accounts(
+            connection_id, provider_account_id, display_name, account_type, currency, created_at, updated_at
         )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(connection_id, provider_account_id) DO UPDATE SET
+            display_name = excluded.display_name,
+            account_type = excluded.account_type,
+            currency = excluded.currency,
+            updated_at = excluded.updated_at
+    """,
+        (
+            connection_id,
+            provider_account_id,
+            display_name,
+            account_type,
+            currency,
+            now,
+            now,
+        ),
+    )
+    if own_conn:
         conn.commit()
+        conn.close()
 
 
 def add_balance_snapshot(
@@ -1118,26 +1155,31 @@ def add_balance_snapshot(
     current: float | None,
     currency: str | None,
     updated_at_provider: str | None,
+    conn=None,
 ) -> None:
-    with get_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO balance_snapshots(
-                connection_id, provider_account_id, available, current, currency, updated_at_provider, captured_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                connection_id,
-                provider_account_id,
-                available,
-                current,
-                currency,
-                updated_at_provider,
-                _utc_now_iso(),
-            ),
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    conn.execute(
+        """
+        INSERT INTO balance_snapshots(
+            connection_id, provider_account_id, available, current, currency, updated_at_provider, captured_at
         )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """,
+        (
+            connection_id,
+            provider_account_id,
+            available,
+            current,
+            currency,
+            updated_at_provider,
+            _utc_now_iso(),
+        ),
+    )
+    if own_conn:
         conn.commit()
+        conn.close()
 
 
 def upsert_transaction(
@@ -1145,6 +1187,7 @@ def upsert_transaction(
     provider_account_id: str,
     tx: dict[str, Any],
     raw_json: str,
+    conn=None,
 ) -> None:
     def _as_db_text(value: Any) -> str | None:
         if value is None:
@@ -1154,47 +1197,51 @@ def upsert_transaction(
         return json.dumps(value, ensure_ascii=True, sort_keys=True)
 
     now = _utc_now_iso()
-    with get_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO transactions(
-                connection_id, provider_account_id, provider_transaction_id, amount, currency,
-                description, merchant_name, transaction_type, transaction_category,
-                transaction_classification, timestamp, running_balance, raw_json, first_seen_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(connection_id, provider_transaction_id) DO UPDATE SET
-                amount = excluded.amount,
-                currency = excluded.currency,
-                description = excluded.description,
-                merchant_name = excluded.merchant_name,
-                transaction_type = excluded.transaction_type,
-                transaction_category = excluded.transaction_category,
-                transaction_classification = excluded.transaction_classification,
-                timestamp = excluded.timestamp,
-                running_balance = excluded.running_balance,
-                raw_json = excluded.raw_json,
-                updated_at = excluded.updated_at
-        """,
-            (
-                connection_id,
-                provider_account_id,
-                tx["transaction_id"],
-                tx.get("amount"),
-                tx.get("currency", "GBP"),
-                encrypt_db_text(_as_db_text(tx.get("description"))),
-                encrypt_db_text(_as_db_text(tx.get("merchant_name"))),
-                encrypt_db_text(_as_db_text(tx.get("transaction_type"))),
-                encrypt_db_text(_as_db_text(tx.get("transaction_category"))),
-                encrypt_db_text(_as_db_text(tx.get("transaction_classification"))),
-                _as_db_text(tx.get("timestamp")),
-                (tx.get("running_balance") or {}).get("amount"),
-                encrypt_db_text(raw_json),
-                now,
-                now,
-            ),
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    conn.execute(
+        """
+        INSERT INTO transactions(
+            connection_id, provider_account_id, provider_transaction_id, amount, currency,
+            description, merchant_name, transaction_type, transaction_category,
+            transaction_classification, timestamp, running_balance, raw_json, first_seen_at, updated_at
         )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(connection_id, provider_transaction_id) DO UPDATE SET
+            amount = excluded.amount,
+            currency = excluded.currency,
+            description = excluded.description,
+            merchant_name = excluded.merchant_name,
+            transaction_type = excluded.transaction_type,
+            transaction_category = excluded.transaction_category,
+            transaction_classification = excluded.transaction_classification,
+            timestamp = excluded.timestamp,
+            running_balance = excluded.running_balance,
+            raw_json = excluded.raw_json,
+            updated_at = excluded.updated_at
+    """,
+        (
+            connection_id,
+            provider_account_id,
+            tx["transaction_id"],
+            tx.get("amount"),
+            tx.get("currency", "GBP"),
+            encrypt_db_text(_as_db_text(tx.get("description"))),
+            encrypt_db_text(_as_db_text(tx.get("merchant_name"))),
+            encrypt_db_text(_as_db_text(tx.get("transaction_type"))),
+            encrypt_db_text(_as_db_text(tx.get("transaction_category"))),
+            encrypt_db_text(_as_db_text(tx.get("transaction_classification"))),
+            _as_db_text(tx.get("timestamp")),
+            (tx.get("running_balance") or {}).get("amount"),
+            encrypt_db_text(raw_json),
+            now,
+            now,
+        ),
+    )
+    if own_conn:
         conn.commit()
+        conn.close()
 
 
 def upsert_direct_debit(
@@ -1202,6 +1249,7 @@ def upsert_direct_debit(
     provider_account_id: str,
     direct_debit: dict[str, Any],
     raw_json: str,
+    conn=None,
 ) -> None:
     def _extract_amount_currency(value: Any) -> tuple[float | None, str | None]:
         if isinstance(value, dict):
@@ -1231,59 +1279,63 @@ def upsert_direct_debit(
     if not latest_currency:
         latest_currency = direct_debit.get("currency")
 
-    with get_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO direct_debits(
-                connection_id, provider_account_id, provider_direct_debit_id, status, payee_name,
-                variable_amount, next_payment_date, latest_amount, latest_currency, raw_json,
-                first_seen_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(connection_id, provider_account_id, provider_direct_debit_id) DO UPDATE SET
-                status = excluded.status,
-                payee_name = excluded.payee_name,
-                variable_amount = excluded.variable_amount,
-                next_payment_date = excluded.next_payment_date,
-                latest_amount = excluded.latest_amount,
-                latest_currency = excluded.latest_currency,
-                raw_json = excluded.raw_json,
-                updated_at = excluded.updated_at
-        """,
-            (
-                connection_id,
-                provider_account_id,
-                str(direct_debit_id),
-                encrypt_db_text(str(direct_debit.get("status") or "")),
-                encrypt_db_text(
-                    str(
-                        direct_debit.get("payee_name")
-                        or direct_debit.get("merchant_name")
-                        or direct_debit.get("name")
-                        or ""
-                    )
-                ),
-                encrypt_db_text(
-                    str(direct_debit.get("variable_amount"))
-                    if direct_debit.get("variable_amount") is not None
-                    else None
-                ),
-                encrypt_db_text(
-                    str(
-                        direct_debit.get("next_payment_date")
-                        or direct_debit.get("payment_date")
-                        or direct_debit.get("timestamp")
-                        or ""
-                    )
-                ),
-                latest_amount,
-                latest_currency,
-                encrypt_db_text(raw_json),
-                now,
-                now,
-            ),
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    conn.execute(
+        """
+        INSERT INTO direct_debits(
+            connection_id, provider_account_id, provider_direct_debit_id, status, payee_name,
+            variable_amount, next_payment_date, latest_amount, latest_currency, raw_json,
+            first_seen_at, updated_at
         )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(connection_id, provider_account_id, provider_direct_debit_id) DO UPDATE SET
+            status = excluded.status,
+            payee_name = excluded.payee_name,
+            variable_amount = excluded.variable_amount,
+            next_payment_date = excluded.next_payment_date,
+            latest_amount = excluded.latest_amount,
+            latest_currency = excluded.latest_currency,
+            raw_json = excluded.raw_json,
+            updated_at = excluded.updated_at
+    """,
+        (
+            connection_id,
+            provider_account_id,
+            str(direct_debit_id),
+            encrypt_db_text(str(direct_debit.get("status") or "")),
+            encrypt_db_text(
+                str(
+                    direct_debit.get("payee_name")
+                    or direct_debit.get("merchant_name")
+                    or direct_debit.get("name")
+                    or ""
+                )
+            ),
+            encrypt_db_text(
+                str(direct_debit.get("variable_amount"))
+                if direct_debit.get("variable_amount") is not None
+                else None
+            ),
+            encrypt_db_text(
+                str(
+                    direct_debit.get("next_payment_date")
+                    or direct_debit.get("payment_date")
+                    or direct_debit.get("timestamp")
+                    or ""
+                )
+            ),
+            latest_amount,
+            latest_currency,
+            encrypt_db_text(raw_json),
+            now,
+            now,
+        ),
+    )
+    if own_conn:
         conn.commit()
+        conn.close()
 
 
 def upsert_standing_order(
@@ -1291,6 +1343,7 @@ def upsert_standing_order(
     provider_account_id: str,
     standing_order: dict[str, Any],
     raw_json: str,
+    conn=None,
 ) -> None:
     def _extract_amount_currency(value: Any) -> tuple[float | None, str | None]:
         if isinstance(value, dict):
@@ -1323,62 +1376,66 @@ def upsert_standing_order(
     if not next_currency:
         next_currency = standing_order.get("currency")
 
-    with get_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO standing_orders(
-                connection_id, provider_account_id, provider_standing_order_id, status, payee_name,
-                frequency, next_payment_date, next_payment_amount, next_payment_currency, raw_json,
-                first_seen_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(connection_id, provider_account_id, provider_standing_order_id) DO UPDATE SET
-                status = excluded.status,
-                payee_name = excluded.payee_name,
-                frequency = excluded.frequency,
-                next_payment_date = excluded.next_payment_date,
-                next_payment_amount = excluded.next_payment_amount,
-                next_payment_currency = excluded.next_payment_currency,
-                raw_json = excluded.raw_json,
-                updated_at = excluded.updated_at
-        """,
-            (
-                connection_id,
-                provider_account_id,
-                str(standing_order_id),
-                encrypt_db_text(str(standing_order.get("status") or "")),
-                encrypt_db_text(
-                    str(
-                        standing_order.get("payee_name")
-                        or standing_order.get("beneficiary_name")
-                        or standing_order.get("name")
-                        or ""
-                    )
-                ),
-                encrypt_db_text(
-                    str(
-                        standing_order.get("frequency")
-                        or (
-                            (standing_order.get("schedule") or {}).get("frequency")
-                            if isinstance(standing_order.get("schedule"), dict)
-                            else ""
-                        )
-                        or ""
-                    )
-                ),
-                encrypt_db_text(
-                    str(
-                        standing_order.get("next_payment_date")
-                        or standing_order.get("payment_date")
-                        or standing_order.get("timestamp")
-                        or ""
-                    )
-                ),
-                next_amount,
-                next_currency,
-                encrypt_db_text(raw_json),
-                now,
-                now,
-            ),
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    conn.execute(
+        """
+        INSERT INTO standing_orders(
+            connection_id, provider_account_id, provider_standing_order_id, status, payee_name,
+            frequency, next_payment_date, next_payment_amount, next_payment_currency, raw_json,
+            first_seen_at, updated_at
         )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(connection_id, provider_account_id, provider_standing_order_id) DO UPDATE SET
+            status = excluded.status,
+            payee_name = excluded.payee_name,
+            frequency = excluded.frequency,
+            next_payment_date = excluded.next_payment_date,
+            next_payment_amount = excluded.next_payment_amount,
+            next_payment_currency = excluded.next_payment_currency,
+            raw_json = excluded.raw_json,
+            updated_at = excluded.updated_at
+    """,
+        (
+            connection_id,
+            provider_account_id,
+            str(standing_order_id),
+            encrypt_db_text(str(standing_order.get("status") or "")),
+            encrypt_db_text(
+                str(
+                    standing_order.get("payee_name")
+                    or standing_order.get("beneficiary_name")
+                    or standing_order.get("name")
+                    or ""
+                )
+            ),
+            encrypt_db_text(
+                str(
+                    standing_order.get("frequency")
+                    or (
+                        (standing_order.get("schedule") or {}).get("frequency")
+                        if isinstance(standing_order.get("schedule"), dict)
+                        else ""
+                    )
+                    or ""
+                )
+            ),
+            encrypt_db_text(
+                str(
+                    standing_order.get("next_payment_date")
+                    or standing_order.get("payment_date")
+                    or standing_order.get("timestamp")
+                    or ""
+                )
+            ),
+            next_amount,
+            next_currency,
+            encrypt_db_text(raw_json),
+            now,
+            now,
+        ),
+    )
+    if own_conn:
         conn.commit()
+        conn.close()

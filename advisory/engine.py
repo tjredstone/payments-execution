@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from datetime import date, datetime, timedelta, timezone
@@ -8,7 +9,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from bank_normalise import build_normalized_payload
-from db import init_db
+from db import init_db, list_connections, resolve_effective_user_id
 
 
 def _easter_sunday(year: int) -> date:
@@ -277,27 +278,79 @@ def run_engine(
     )
 
 
+def _connected_user_ids(provider: str) -> list[str]:
+    return sorted({row["user_id"] for row in list_connections(provider=provider)})
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Generate payment advisory decisions.")
+    parser.add_argument("--user-id", help="User ID to run advisory engine for.")
+    parser.add_argument(
+        "--all-users",
+        action="store_true",
+        help="Run advisory engine for every connected user.",
+    )
+    args = parser.parse_args()
+    if args.user_id and args.all_users:
+        print("Use either --user-id or --all-users, not both.")
+        return
+
     load_dotenv()
     init_db()
 
-    user_id = os.getenv("LOCAL_USER_ID", "local-dev-user")
     provider = os.getenv("OPEN_BANKING_PROVIDER", "truelayer")
     lookback_days = int(os.getenv("NORMALISE_LOOKBACK_DAYS", "120"))
     advisory_window_days = int(os.getenv("ADVISORY_WINDOW_DAYS", "14"))
+    if args.all_users:
+        user_ids = _connected_user_ids(provider)
+        if not user_ids:
+            print("No connected bank users found.")
+            return
+    else:
+        try:
+            user_ids = [resolve_effective_user_id(args.user_id or os.getenv("LOCAL_USER_ID"))]
+        except ValueError as exc:
+            print(f"{exc} Example: python advisory/engine.py --user-id <uuid>")
+            return
 
-    try:
-        result = run_engine(
-            user_id=user_id,
-            provider=provider,
-            normalise_lookback_days=lookback_days,
-            advisory_window_days=advisory_window_days,
-        )
-    except ValueError as exc:
-        print(f"{exc} Run advisory/app.py then advisory/run_daily.py first.")
+    if len(user_ids) == 1:
+        try:
+            result = run_engine(
+                user_id=user_ids[0],
+                provider=provider,
+                normalise_lookback_days=lookback_days,
+                advisory_window_days=advisory_window_days,
+            )
+        except ValueError as exc:
+            print(f"{exc} Run advisory/app.py then advisory/run_daily.py first.")
+            return
+        print(json.dumps(result, indent=2, ensure_ascii=True))
         return
 
-    print(json.dumps(result, indent=2, ensure_ascii=True))
+    results: list[dict[str, Any]] = []
+    for user_id in user_ids:
+        try:
+            result = run_engine(
+                user_id=user_id,
+                provider=provider,
+                normalise_lookback_days=lookback_days,
+                advisory_window_days=advisory_window_days,
+            )
+            results.append(result)
+        except ValueError as exc:
+            results.append({"user_id": user_id, "error": str(exc)})
+
+    print(
+        json.dumps(
+            {
+                "provider": provider,
+                "user_count": len(user_ids),
+                "results": results,
+            },
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
 
 
 if __name__ == "__main__":

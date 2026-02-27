@@ -333,7 +333,7 @@ def login():
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if not ALLOW_SELF_REGISTRATION:
-        return "Registration is disabled.", 403
+        return "Forbidden", 403
     if _current_user():
         return redirect(url_for("home"))
 

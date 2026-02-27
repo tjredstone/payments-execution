@@ -22,7 +22,7 @@ Address any `failed` checks before connecting real accounts.
 python advisory/rotate_encryption_key.py
 ```
 
-By default, this creates a timestamped DB backup before rotation.
+For Supabase/Postgres, create backups/snapshots using Supabase tooling before rotation.
 
 ## 3. Key rotation cadence
 
